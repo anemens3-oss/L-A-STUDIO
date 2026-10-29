@@ -27,5 +27,17 @@ CREATE TABLE IF NOT EXISTS booking_audit_logs (
 
 CREATE INDEX IF NOT EXISTS idx_booking_audit_logs_booking ON booking_audit_logs(booking_id);
 
+CREATE TABLE IF NOT EXISTS admin_sessions (
+  token_hash TEXT PRIMARY KEY,
+  login TEXT NOT NULL,
+  csrf_token TEXT NOT NULL,
+  expires_at INTEGER NOT NULL,
+  revoked INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_admin_sessions_expires ON admin_sessions(expires_at);
+
 -- Перевод старых записей очереди (если были со значением 'max_bot') на канал 'telegram'
 UPDATE notification_queue SET channel = 'telegram' WHERE channel = 'max_bot';
+

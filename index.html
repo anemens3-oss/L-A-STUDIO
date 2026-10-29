@@ -790,15 +790,25 @@
 
             <div class="form-field">
               <label for="main-admin-password-input" class="field-label">Пароль</label>
-              <input
-                type="password"
-                id="main-admin-password-input"
-                name="password"
-                class="field-input"
-                placeholder="Введите пароль"
-                autocomplete="current-password"
-                required
-              />
+              <div class="password-input-wrap">
+                <input
+                  type="password"
+                  id="main-admin-password-input"
+                  name="password"
+                  class="field-input"
+                  placeholder="Введите пароль"
+                  autocomplete="current-password"
+                  required
+                />
+                <button
+                  type="button"
+                  class="password-toggle-btn"
+                  data-toggle-password="main-admin-password-input"
+                  aria-label="Показать или скрыть пароль"
+                >
+                  Показать
+                </button>
+              </div>
             </div>
 
             <div class="booking-alert" id="main-admin-login-error" role="alert" hidden></div>
@@ -860,87 +870,270 @@
         <div class="admin-panel-TitleBar">
           <div>
             <p class="eyebrow" id="inline-admin-sync-status">Подключено к серверной базе данных D1</p>
-            <h1 class="section-title">Управление записями клиентов</h1>
+            <h1 class="section-title">Управление записями и аккаунтом</h1>
           </div>
           <div class="admin-panel-top-actions">
+            <span class="admin-active-login-badge" id="inline-admin-active-login">Логин: admin</span>
             <button type="button" class="btn btn-secondary btn-sm" id="inline-admin-refresh-btn">
               Обновить список
             </button>
           </div>
         </div>
 
-        <!-- Карточки статистики -->
-        <div class="admin-kpi-grid" id="inline-admin-kpi-grid">
-          <article class="admin-kpi-card">
-            <span class="kpi-label">Записи на сегодня</span>
-            <strong class="kpi-value tabular-nums" id="inline-kpi-today">0</strong>
-            <span class="kpi-meta" id="inline-kpi-today-date">Актуальные визиты</span>
-          </article>
-          <article class="admin-kpi-card">
-            <span class="kpi-label">Предстоящие записи</span>
-            <strong class="kpi-value tabular-nums" id="inline-kpi-upcoming">0</strong>
-            <span class="kpi-meta">Подтверждённые и ожидающие</span>
-          </article>
-          <article class="admin-kpi-card">
-            <span class="kpi-label">Подтверждено</span>
-            <strong class="kpi-value tabular-nums" id="inline-kpi-confirmed">0</strong>
-            <span class="kpi-meta">Активные брони в расписании</span>
-          </article>
-          <article class="admin-kpi-card">
-            <span class="kpi-label">Отменено</span>
-            <strong class="kpi-value tabular-nums" id="inline-kpi-cancelled">0</strong>
-            <span class="kpi-meta">Свободные окна восстановлены</span>
-          </article>
-        </div>
-
-        <!-- Панель фильтров по дате, статусу, мастеру и поиску -->
-        <div class="admin-filters-bar">
-          <div class="form-field">
-            <label for="inline-admin-filter-date" class="field-label">Дата визита</label>
-            <input type="date" id="inline-admin-filter-date" class="field-input" />
-          </div>
-
-          <div class="form-field">
-            <label for="inline-admin-filter-status" class="field-label">Статус записи</label>
-            <select id="inline-admin-filter-status" class="field-input">
-              <option value="all">Все статусы</option>
-              <option value="pending">Ожидает подтверждения</option>
-              <option value="confirmed">Подтверждена</option>
-              <option value="completed">Завершена</option>
-              <option value="cancelled">Отменена</option>
-            </select>
-          </div>
-
-          <div class="form-field">
-            <label for="inline-admin-filter-master" class="field-label">Мастер</label>
-            <select id="inline-admin-filter-master" class="field-input">
-              <option value="all">Все мастера</option>
-            </select>
-          </div>
-
-          <div class="form-field">
-            <label for="inline-admin-filter-search" class="field-label">Поиск (имя или телефон)</label>
-            <input
-              type="search"
-              id="inline-admin-filter-search"
-              class="field-input"
-              placeholder="Имя, фамилия или +7..."
-            />
-          </div>
-
-          <div class="admin-filter-reset-col">
-            <button type="button" class="btn btn-secondary btn-sm" id="inline-admin-filter-reset">
-              Сбросить фильтры
-            </button>
-          </div>
-        </div>
+        <!-- Вкладки панели администратора -->
+        <nav class="admin-tabs-nav" aria-label="Разделы панели администратора">
+          <button
+            type="button"
+            class="admin-tab-btn is-active"
+            data-inline-admin-tab="bookings"
+          >
+            Записи клиентов
+          </button>
+          <button
+            type="button"
+            class="admin-tab-btn"
+            data-inline-admin-tab="account"
+          >
+            Настройки аккаунта
+          </button>
+        </nav>
 
         <!-- Уведомление об операциях в панели -->
         <div id="inline-admin-alert" class="booking-alert" role="alert" hidden></div>
 
-        <!-- Список записей (Таблица на ПК + адаптивные карточки на телефоне) -->
-        <div id="inline-admin-bookings-container" class="admin-bookings-container">
-          <div class="loading-skeleton">Загрузка записей из базы данных...</div>
+        <!-- ВКЛАДКА 1: ЗАПИСИ КЛИЕНТОВ -->
+        <div id="inline-admin-tab-bookings">
+          <!-- Карточки статистики -->
+          <div class="admin-kpi-grid" id="inline-admin-kpi-grid">
+            <article class="admin-kpi-card">
+              <span class="kpi-label">Записи на сегодня</span>
+              <strong class="kpi-value tabular-nums" id="inline-kpi-today">0</strong>
+              <span class="kpi-meta" id="inline-kpi-today-date">Актуальные визиты</span>
+            </article>
+            <article class="admin-kpi-card">
+              <span class="kpi-label">Предстоящие записи</span>
+              <strong class="kpi-value tabular-nums" id="inline-kpi-upcoming">0</strong>
+              <span class="kpi-meta">Подтверждённые и ожидающие</span>
+            </article>
+            <article class="admin-kpi-card">
+              <span class="kpi-label">Подтверждено</span>
+              <strong class="kpi-value tabular-nums" id="inline-kpi-confirmed">0</strong>
+              <span class="kpi-meta">Активные брони в расписании</span>
+            </article>
+            <article class="admin-kpi-card">
+              <span class="kpi-label">Отменено</span>
+              <strong class="kpi-value tabular-nums" id="inline-kpi-cancelled">0</strong>
+              <span class="kpi-meta">Свободные окна восстановлены</span>
+            </article>
+          </div>
+
+          <!-- Панель фильтров по дате, статусу, мастеру и поиску -->
+          <div class="admin-filters-bar">
+            <div class="form-field">
+              <label for="inline-admin-filter-date" class="field-label">Дата визита</label>
+              <input type="date" id="inline-admin-filter-date" class="field-input" />
+            </div>
+
+            <div class="form-field">
+              <label for="inline-admin-filter-status" class="field-label">Статус записи</label>
+              <select id="inline-admin-filter-status" class="field-input">
+                <option value="all">Все статусы</option>
+                <option value="pending">Ожидает подтверждения</option>
+                <option value="confirmed">Подтверждена</option>
+                <option value="completed">Завершена</option>
+                <option value="cancelled">Отменена</option>
+              </select>
+            </div>
+
+            <div class="form-field">
+              <label for="inline-admin-filter-master" class="field-label">Мастер</label>
+              <select id="inline-admin-filter-master" class="field-input">
+                <option value="all">Все мастера</option>
+              </select>
+            </div>
+
+            <div class="form-field">
+              <label for="inline-admin-filter-search" class="field-label">Поиск (имя или телефон)</label>
+              <input
+                type="search"
+                id="inline-admin-filter-search"
+                class="field-input"
+                placeholder="Имя, фамилия или +7..."
+              />
+            </div>
+
+            <div class="admin-filter-reset-col">
+              <button type="button" class="btn btn-secondary btn-sm" id="inline-admin-filter-reset">
+                Сбросить фильтры
+              </button>
+            </div>
+          </div>
+
+          <!-- Список записей (Таблица на ПК + адаптивные карточки на телефоне) -->
+          <div id="inline-admin-bookings-container" class="admin-bookings-container">
+            <div class="loading-skeleton">Загрузка записей из базы данных...</div>
+          </div>
+        </div>
+
+        <!-- ВКЛАДКА 2: НАСТРОЙКИ АККАУНТА (СМЕНА ЛОГИНА И ПАРОЛЯ) -->
+        <div id="inline-admin-tab-account" hidden>
+          <div class="admin-account-grid">
+            <!-- Форма смены логина -->
+            <section class="admin-card-panel">
+              <p class="eyebrow">Безопасность входа</p>
+              <h2 class="admin-box-title">Смена логина администратора</h2>
+              <p class="field-hint">
+                Логин должен содержать от 3 до 40 символов (латинские буквы, цифры, точка, дефис или подчёркивание). Для подтверждения введите текущий пароль.
+              </p>
+
+              <form id="inline-change-login-form" class="admin-entity-form" novalidate>
+                <div class="form-field">
+                  <label for="inline-current-login-input" class="field-label">Текущий логин *</label>
+                  <input
+                    type="text"
+                    id="inline-current-login-input"
+                    class="field-input"
+                    value="admin"
+                    autocomplete="username"
+                    required
+                  />
+                </div>
+
+                <div class="form-field">
+                  <label for="inline-new-login-input" class="field-label">Новый логин *</label>
+                  <input
+                    type="text"
+                    id="inline-new-login-input"
+                    class="field-input"
+                    placeholder="Например: lea_manager"
+                    minlength="3"
+                    maxlength="40"
+                    autocomplete="off"
+                    required
+                  />
+                </div>
+
+                <div class="form-field">
+                  <label for="inline-login-current-password" class="field-label">Текущий пароль для подтверждения *</label>
+                  <div class="password-input-wrap">
+                    <input
+                      type="password"
+                      id="inline-login-current-password"
+                      class="field-input"
+                      placeholder="Введите текущий пароль"
+                      autocomplete="current-password"
+                      required
+                    />
+                    <button
+                      type="button"
+                      class="password-toggle-btn"
+                      data-toggle-password="inline-login-current-password"
+                      aria-label="Показать или скрыть пароль"
+                    >
+                      Показать
+                    </button>
+                  </div>
+                </div>
+
+                <div class="booking-alert" id="inline-change-login-feedback" role="alert" hidden></div>
+
+                <div class="admin-form-buttons">
+                  <button type="submit" class="btn btn-primary btn-sm" id="inline-change-login-submit">
+                    Сохранить новый логин
+                  </button>
+                </div>
+              </form>
+            </section>
+
+            <!-- Форма смены пароля -->
+            <section class="admin-card-panel">
+              <p class="eyebrow">Криптографическая защита SHA-256</p>
+              <h2 class="admin-box-title">Смена пароля администратора</h2>
+              <p class="field-hint">
+                Новый пароль должен содержать не менее 8 символов, включая буквы и хотя бы одну цифру или спецсимвол. Пароль сохраняется в БД только в виде хеша.
+              </p>
+
+              <form id="inline-change-password-form" class="admin-entity-form" novalidate>
+                <div class="form-field">
+                  <label for="inline-current-password-input" class="field-label">Текущий пароль *</label>
+                  <div class="password-input-wrap">
+                    <input
+                      type="password"
+                      id="inline-current-password-input"
+                      class="field-input"
+                      placeholder="Введите текущий пароль"
+                      autocomplete="current-password"
+                      required
+                    />
+                    <button
+                      type="button"
+                      class="password-toggle-btn"
+                      data-toggle-password="inline-current-password-input"
+                      aria-label="Показать или скрыть пароль"
+                    >
+                      Показать
+                    </button>
+                  </div>
+                </div>
+
+                <div class="form-field">
+                  <label for="inline-new-password-input" class="field-label">Новый пароль (минимум 8 символов) *</label>
+                  <div class="password-input-wrap">
+                    <input
+                      type="password"
+                      id="inline-new-password-input"
+                      class="field-input"
+                      placeholder="Введите новый пароль"
+                      minlength="8"
+                      maxlength="128"
+                      autocomplete="new-password"
+                      required
+                    />
+                    <button
+                      type="button"
+                      class="password-toggle-btn"
+                      data-toggle-password="inline-new-password-input"
+                      aria-label="Показать или скрыть пароль"
+                    >
+                      Показать
+                    </button>
+                  </div>
+                </div>
+
+                <div class="form-field">
+                  <label for="inline-confirm-password-input" class="field-label">Подтверждение нового пароля *</label>
+                  <div class="password-input-wrap">
+                    <input
+                      type="password"
+                      id="inline-confirm-password-input"
+                      class="field-input"
+                      placeholder="Повторите новый пароль"
+                      minlength="8"
+                      maxlength="128"
+                      autocomplete="new-password"
+                      required
+                    />
+                    <button
+                      type="button"
+                      class="password-toggle-btn"
+                      data-toggle-password="inline-confirm-password-input"
+                      aria-label="Показать или скрыть пароль"
+                    >
+                      Показать
+                    </button>
+                  </div>
+                </div>
+
+                <div class="booking-alert" id="inline-change-password-feedback" role="alert" hidden></div>
+
+                <div class="admin-form-buttons">
+                  <button type="submit" class="btn btn-primary btn-sm" id="inline-change-password-submit">
+                    Обновить пароль
+                  </button>
+                </div>
+              </form>
+            </section>
+          </div>
         </div>
       </div>
     </section>

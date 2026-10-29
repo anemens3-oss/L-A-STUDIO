@@ -320,15 +320,86 @@ function timingSafeEqualHex(a, b) {
   return diff === 0;
 }
 
-function getSigningSecret(env) {
+function getSigningSecret(env, passwordHashOverride = '') {
   const baseHash = (
-    env?.ADMIN_PASSWORD_SHA256 || DEFAULT_ADMIN_PASSWORD_SHA256
+    passwordHashOverride ||
+    env?.ADMIN_PASSWORD_SHA256 ||
+    DEFAULT_ADMIN_PASSWORD_SHA256
   ).toLowerCase();
   const extra = env?.ADMIN_SESSION_SECRET || 'lea-studio-admin-session-v1';
   return `${baseHash}:${extra}`;
 }
 
-async function createAdminSessionToken(env, login) {
+async function getAdminCredentials(env) {
+  let dbLogin = '';
+  let dbPasswordHash = '';
+  let updatedAt = null;
+
+  if (env && env.DB) {
+    try {
+      await ensureDatabaseReady(env.DB);
+      const { results } = await env.DB
+        .prepare(
+          `SELECT key, value FROM salon_settings WHERE key IN ('admin_login', 'admin_password_sha256', 'admin_credentials_updated_at')`
+        )
+        .all();
+      for (const row of results || []) {
+        if (row.key === 'admin_login' && row.value) {
+          dbLogin = String(row.value).trim();
+        } else if (row.key === 'admin_password_sha256' && row.value) {
+          dbPasswordHash = String(row.value).trim().toLowerCase();
+        } else if (row.key === 'admin_credentials_updated_at' && row.value) {
+          updatedAt = String(row.value).trim();
+        }
+      }
+    } catch {
+      // Fallback to env defaults if DB read fails
+    }
+  }
+
+  const login =
+    dbLogin ||
+    String(env?.ADMIN_LOGIN || env?.ADMIN_USERNAME || DEFAULT_ADMIN_USERNAME).trim();
+
+  let passwordHash = dbPasswordHash;
+  if (!passwordHash) {
+    if (env?.ADMIN_PASSWORD_SHA256) {
+      passwordHash = String(env.ADMIN_PASSWORD_SHA256).trim().toLowerCase();
+    } else if (env?.ADMIN_PASSWORD) {
+      passwordHash = await sha256Hex(String(env.ADMIN_PASSWORD).trim());
+    } else {
+      passwordHash = DEFAULT_ADMIN_PASSWORD_SHA256;
+    }
+  }
+
+  return { login, passwordHash, updatedAt };
+}
+
+function buildAdminSessionCookie(request, token, maxAgeSeconds = ADMIN_SESSION_TTL_SECONDS) {
+  let isHttps = false;
+  try {
+    const reqUrl = new URL(request.url);
+    const forwardedProto = (request.headers.get('X-Forwarded-Proto') || '').toLowerCase();
+    isHttps = reqUrl.protocol === 'https:' || forwardedProto === 'https';
+  } catch {
+    isHttps = false;
+  }
+
+  const encodedVal = token ? encodeURIComponent(token) : '';
+  // Для HTTPS (включая preview iframe) используем SameSite=None; Secure,
+  // а для локального HTTP (localhost) — SameSite=Lax без флага Secure, чтобы браузер не отбрасывал cookie.
+  const securityFlags = isHttps
+    ? 'HttpOnly; Secure; SameSite=None; Path=/'
+    : 'HttpOnly; SameSite=Lax; Path=/';
+
+  return `lea_admin_session=${encodedVal}; ${securityFlags}; Max-Age=${maxAgeSeconds}`;
+}
+
+async function createAdminSessionToken(env, login, passwordHashOverride = '') {
+  const creds = passwordHashOverride
+    ? { login: login || DEFAULT_ADMIN_USERNAME, passwordHash: passwordHashOverride }
+    : await getAdminCredentials(env);
+  const activeLogin = login || creds.login || DEFAULT_ADMIN_USERNAME;
   const nowSec = Math.floor(Date.now() / 1000);
   const expSec = nowSec + ADMIN_SESSION_TTL_SECONDS;
   const randomBytes = new Uint8Array(12);
@@ -343,7 +414,7 @@ async function createAdminSessionToken(env, login) {
     .join('');
 
   const payloadObj = {
-    sub: login || DEFAULT_ADMIN_USERNAME,
+    sub: activeLogin,
     iat: nowSec,
     exp: expSec,
     jti: nonce,
@@ -353,12 +424,38 @@ async function createAdminSessionToken(env, login) {
     .replace(/\+/g, '-')
     .replace(/\//g, '_')
     .replace(/=+$/, '');
-  const signature = await hmacSha256Hex(getSigningSecret(env), payloadB64);
+  const signature = await hmacSha256Hex(
+    getSigningSecret(env, creds.passwordHash),
+    payloadB64
+  );
+  const token = `sess.${payloadB64}.${signature}`;
+
+  if (env && env.DB) {
+    try {
+      await ensureDatabaseReady(env.DB);
+      const tokenHash = await sha256Hex(token);
+      const nowIso = new Date().toISOString();
+      await env.DB.batch([
+        env.DB
+          .prepare('DELETE FROM admin_sessions WHERE expires_at <= ?')
+          .bind(nowSec),
+        env.DB
+          .prepare(
+            `INSERT OR REPLACE INTO admin_sessions (token_hash, login, csrf_token, expires_at, revoked, created_at)
+             VALUES (?, ?, ?, ?, 0, ?)`
+          )
+          .bind(tokenHash, activeLogin, csrfToken, expSec, nowIso),
+      ]);
+    } catch {
+      // Non-fatal if session table write fails
+    }
+  }
+
   return {
-    token: `sess.${payloadB64}.${signature}`,
+    token,
     csrfToken,
     expiresAt: expSec,
-    login: payloadObj.sub,
+    login: activeLogin,
   };
 }
 
@@ -374,7 +471,11 @@ async function verifyAdminSessionToken(token, env) {
     return null;
   }
   const [, payloadB64, sigHex] = parts;
-  const expectedSig = await hmacSha256Hex(getSigningSecret(env), payloadB64);
+  const creds = await getAdminCredentials(env);
+  const expectedSig = await hmacSha256Hex(
+    getSigningSecret(env, creds.passwordHash),
+    payloadB64
+  );
   if (!timingSafeEqualHex(sigHex.toLowerCase(), expectedSig.toLowerCase())) {
     return null;
   }
@@ -387,6 +488,30 @@ async function verifyAdminSessionToken(token, env) {
     if (!payload.exp || payload.exp < nowSec) {
       return null;
     }
+    if (
+      !payload.sub ||
+      String(payload.sub).toLowerCase() !== String(creds.login).toLowerCase()
+    ) {
+      return null;
+    }
+
+    if (env && env.DB) {
+      try {
+        const tokenHash = await sha256Hex(token);
+        const row = await env.DB
+          .prepare(
+            'SELECT revoked, expires_at FROM admin_sessions WHERE token_hash = ?'
+          )
+          .bind(tokenHash)
+          .first();
+        if (row && (Number(row.revoked) === 1 || Number(row.expires_at) < nowSec)) {
+          return null;
+        }
+      } catch {
+        // Fallback to stateless HMAC verification
+      }
+    }
+
     return payload;
   } catch {
     return null;
@@ -409,14 +534,16 @@ function parseCookies(cookieHeader) {
 
 /**
  * Проверяет авторизацию администратора по:
- * 1. Защищённой сессионной Cookie `lea_admin_session` (HttpOnly; Secure; SameSite=Strict)
+ * 1. Заголовку `Authorization: Bearer <sessionToken или password>`.
+ * 2. Защищённой сессионной Cookie `lea_admin_session`
  *    с проверкой X-CSRF-Token для модифицирующих запросов (POST/PUT/PATCH/DELETE).
- * 2. Заголовку `Authorization: Bearer <sessionToken или password>`.
  */
 async function authenticateAdminRequest(request, env, { requireCsrf = false } = {}) {
-  const expectedHash = (
-    env?.ADMIN_PASSWORD_SHA256 || DEFAULT_ADMIN_PASSWORD_SHA256
-  ).toLowerCase();
+  const creds = await getAdminCredentials(env);
+  const expectedHash = creds.passwordHash;
+  const isMutating = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(
+    request.method.toUpperCase()
+  );
 
   // 1. Проверка Bearer-заголовка
   const authHeader = request.headers.get('Authorization') || '';
@@ -426,6 +553,10 @@ async function authenticateAdminRequest(request, env, { requireCsrf = false } = 
       if (bearerValue.startsWith('sess.')) {
         const sessionPayload = await verifyAdminSessionToken(bearerValue, env);
         if (sessionPayload) {
+          const csrfHeader = (request.headers.get('X-CSRF-Token') || '').trim();
+          if (requireCsrf && sessionPayload.csrf && csrfHeader && !timingSafeEqualHex(csrfHeader, sessionPayload.csrf)) {
+            return { authorized: false, reason: 'CSRF_TOKEN_MISMATCH' };
+          }
           return {
             authorized: true,
             login: sessionPayload.sub,
@@ -434,25 +565,24 @@ async function authenticateAdminRequest(request, env, { requireCsrf = false } = 
             via: 'bearer_session',
           };
         }
-        return { authorized: false, reason: 'INVALID_SESSION_TOKEN' };
+        // Если Bearer-токен устарел, ниже проверим также актуальную Cookie перед отказом
+      } else {
+        // Прямая передача пароля в Bearer (поддержка существующих интеграционных тестов и CLI)
+        const actualHash = await sha256Hex(bearerValue);
+        if (timingSafeEqualHex(actualHash, expectedHash)) {
+          const derivedCsrf = (
+            await hmacSha256Hex(getSigningSecret(env, expectedHash), 'bearer-csrf')
+          ).slice(0, 32);
+          return {
+            authorized: true,
+            login: creds.login,
+            csrfToken: derivedCsrf,
+            token: null,
+            via: 'bearer_password',
+          };
+        }
+        return { authorized: false, reason: 'INVALID_CREDENTIALS' };
       }
-
-      // Прямая передача пароля в Bearer (поддержка существующих интеграционных тестов и CLI)
-      const actualHash = await sha256Hex(bearerValue);
-      if (timingSafeEqualHex(actualHash, expectedHash)) {
-        const derivedCsrf = (await hmacSha256Hex(getSigningSecret(env), 'bearer-csrf')).slice(
-          0,
-          32
-        );
-        return {
-          authorized: true,
-          login: env?.ADMIN_USERNAME || DEFAULT_ADMIN_USERNAME,
-          csrfToken: derivedCsrf,
-          token: null,
-          via: 'bearer_password',
-        };
-      }
-      return { authorized: false, reason: 'INVALID_CREDENTIALS' };
     }
   }
 
@@ -465,9 +595,6 @@ async function authenticateAdminRequest(request, env, { requireCsrf = false } = 
       return { authorized: false, reason: 'EXPIRED_OR_INVALID_COOKIE' };
     }
 
-    const isMutating = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(
-      request.method.toUpperCase()
-    );
     if ((requireCsrf || isMutating) && sessionPayload.csrf) {
       const csrfHeader = (request.headers.get('X-CSRF-Token') || '').trim();
       if (!csrfHeader || !timingSafeEqualHex(csrfHeader, sessionPayload.csrf)) {
@@ -657,6 +784,14 @@ async function ensureDatabaseReady(db) {
         action TEXT NOT NULL,
         actor TEXT NOT NULL DEFAULT 'system',
         details TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL
+      )`,
+      `CREATE TABLE IF NOT EXISTS admin_sessions (
+        token_hash TEXT PRIMARY KEY,
+        login TEXT NOT NULL,
+        csrf_token TEXT NOT NULL,
+        expires_at INTEGER NOT NULL,
+        revoked INTEGER NOT NULL DEFAULT 0,
         created_at TEXT NOT NULL
       )`,
     ];
@@ -2794,12 +2929,9 @@ async function handleAdminLogin(request, env) {
     return errorResponse('MISSING_CREDENTIALS', 'Введите логин и пароль.', 400);
   }
 
-  const expectedLogin = String(env.ADMIN_USERNAME || DEFAULT_ADMIN_USERNAME).trim();
-  const expectedHash = String(
-    env.ADMIN_PASSWORD_SHA256 || DEFAULT_ADMIN_PASSWORD_SHA256
-  )
-    .trim()
-    .toLowerCase();
+  const creds = await getAdminCredentials(env);
+  const expectedLogin = creds.login;
+  const expectedHash = creds.passwordHash;
 
   const actualHash = await sha256Hex(inputPassword);
   const loginMatches = inputLogin.toLowerCase() === expectedLogin.toLowerCase();
@@ -2815,15 +2947,18 @@ async function handleAdminLogin(request, env) {
   }
 
   clearLoginAttempts(request);
-  const session = await createAdminSessionToken(env, expectedLogin);
-  const cookieValue = `lea_admin_session=${encodeURIComponent(
-    session.token
-  )}; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=${ADMIN_SESSION_TTL_SECONDS}`;
+  const session = await createAdminSessionToken(env, expectedLogin, expectedHash);
+  const cookieValue = buildAdminSessionCookie(
+    request,
+    session.token,
+    ADMIN_SESSION_TTL_SECONDS
+  );
 
   return jsonResponse(
     {
       ok: true,
       authenticated: true,
+      login: session.login,
       admin: {
         login: session.login,
       },
@@ -2842,9 +2977,20 @@ async function handleAdminLogout(request, env) {
   const auth = await authenticateAdminRequest(request, env, { requireCsrf: false });
   if (auth.token) {
     revokedSessionTokens.add(auth.token);
+    if (env && env.DB) {
+      try {
+        await ensureDatabaseReady(env.DB);
+        const tokenHash = await sha256Hex(auth.token);
+        await env.DB
+          .prepare('UPDATE admin_sessions SET revoked = 1 WHERE token_hash = ?')
+          .bind(tokenHash)
+          .run();
+      } catch {
+        // Ignore DB revocation error on logout
+      }
+    }
   }
-  const clearCookie =
-    'lea_admin_session=; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=0';
+  const clearCookie = buildAdminSessionCookie(request, '', 0);
   return jsonResponse(
     { ok: true, authenticated: false },
     200,
@@ -2864,9 +3010,250 @@ async function handleAdminSession(request, env) {
   return jsonResponse({
     ok: true,
     authenticated: true,
+    login: auth.login,
     admin: { login: auth.login },
     csrfToken: auth.csrfToken,
   });
+}
+
+async function handleAdminAccountSettings(request, env, mode = 'auto') {
+  const auth = await authenticateAdminRequest(request, env);
+  if (!auth.authorized) {
+    return errorResponse(
+      'UNAUTHORIZED',
+      'Требуется авторизация администратора.',
+      401
+    );
+  }
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return errorResponse('INVALID_JSON', 'Некорректный формат запроса.', 400);
+  }
+
+  const db = env.DB;
+  await ensureDatabaseReady(db);
+  const creds = await getAdminCredentials(env);
+  const nowIso = new Date().toISOString();
+
+  const effectiveMode =
+    mode !== 'auto'
+      ? mode
+      : body.action === 'change_login' || (body.newLogin && !body.newPassword)
+      ? 'login'
+      : 'password';
+
+  const currentPassword = String(body.currentPassword || '').trim();
+  if (!currentPassword) {
+    return errorResponse(
+      'MISSING_CURRENT_PASSWORD',
+      'Введите текущий пароль для подтверждения операции.',
+      400
+    );
+  }
+
+  const currentPassHash = await sha256Hex(currentPassword);
+  if (!timingSafeEqualHex(currentPassHash, creds.passwordHash)) {
+    return errorResponse(
+      'INVALID_CURRENT_PASSWORD',
+      'Неверный текущий пароль. Операция отклонена.',
+      401
+    );
+  }
+
+  if (effectiveMode === 'login') {
+    const inputCurrentLogin = String(body.currentLogin || creds.login).trim();
+    const newLogin = String(body.newLogin || '').trim();
+
+    if (!newLogin) {
+      return errorResponse('MISSING_NEW_LOGIN', 'Укажите новый логин администратора.', 400);
+    }
+    if (inputCurrentLogin.toLowerCase() !== creds.login.toLowerCase()) {
+      return errorResponse(
+        'CURRENT_LOGIN_MISMATCH',
+        'Указанный текущий логин не совпадает с активным логином аккаунта.',
+        400
+      );
+    }
+    if (newLogin.length < 3 || newLogin.length > 40) {
+      return errorResponse(
+        'INVALID_NEW_LOGIN',
+        'Новый логин должен содержать от 3 до 40 символов.',
+        400
+      );
+    }
+    if (!/^[a-zA-Z0-9._-]+$/.test(newLogin)) {
+      return errorResponse(
+        'INVALID_NEW_LOGIN',
+        'Логин может содержать только латинские буквы, цифры, точку, дефис и символ подчёркивания.',
+        400
+      );
+    }
+    if (newLogin.toLowerCase() === creds.login.toLowerCase()) {
+      return errorResponse(
+        'SAME_LOGIN',
+        'Новый логин должен отличаться от текущего логина.',
+        400
+      );
+    }
+
+    await db.batch([
+      db
+        .prepare(
+          `INSERT INTO salon_settings (key, value, description)
+           VALUES ('admin_login', ?, 'Логин администратора')
+           ON CONFLICT(key) DO UPDATE SET value = excluded.value`
+        )
+        .bind(newLogin),
+      db
+        .prepare(
+          `INSERT INTO salon_settings (key, value, description)
+           VALUES ('admin_credentials_updated_at', ?, 'Дата обновления учётных данных администратора')
+           ON CONFLICT(key) DO UPDATE SET value = excluded.value`
+        )
+        .bind(nowIso),
+      db.prepare('UPDATE admin_sessions SET revoked = 1'),
+    ]);
+
+    if (auth.token) {
+      revokedSessionTokens.add(auth.token);
+    }
+    await appendBookingAuditLog(
+      db,
+      'ADMIN_ACCOUNT',
+      'admin_login_changed',
+      newLogin,
+      `Логин администратора изменён (${creds.login} -> ${newLogin})`,
+      nowIso
+    );
+
+    const session = await createAdminSessionToken(env, newLogin, creds.passwordHash);
+    const cookieValue = buildAdminSessionCookie(
+      request,
+      session.token,
+      ADMIN_SESSION_TTL_SECONDS
+    );
+
+    return jsonResponse(
+      {
+        ok: true,
+        message: 'Логин администратора успешно изменён.',
+        login: session.login,
+        admin: { login: session.login },
+        csrfToken: session.csrfToken,
+        sessionToken: session.token,
+        expiresAt: session.expiresAt,
+      },
+      200,
+      { 'Set-Cookie': cookieValue }
+    );
+  }
+
+  // Смена пароля администратора
+  const newPassword = String(body.newPassword || '').trim();
+  const confirmPassword = String(
+    body.confirmPassword !== undefined ? body.confirmPassword : body.newPasswordConfirm || ''
+  ).trim();
+
+  if (!newPassword || !confirmPassword) {
+    return errorResponse(
+      'MISSING_PASSWORD_FIELDS',
+      'Заполните новый пароль и подтверждение нового пароля.',
+      400
+    );
+  }
+  if (newPassword !== confirmPassword) {
+    return errorResponse(
+      'PASSWORD_CONFIRM_MISMATCH',
+      'Новый пароль и подтверждение пароля не совпадают.',
+      400
+    );
+  }
+  if (newPassword.length < 8 || newPassword.length > 128) {
+    return errorResponse(
+      'WEAK_PASSWORD',
+      'Новый пароль должен содержать не менее 8 символов.',
+      400
+    );
+  }
+  const hasLetter = /[a-zA-Zа-яА-ЯёЁ]/.test(newPassword);
+  const hasDigitOrSymbol = /[0-9!@#$%^&*()_+\-=[\]{};':"\\|,.<>/?~`]/.test(newPassword);
+  if (!hasLetter || !hasDigitOrSymbol) {
+    return errorResponse(
+      'WEAK_PASSWORD',
+      'Новый пароль должен содержать буквы и хотя бы одну цифру или специальный символ.',
+      400
+    );
+  }
+  if (newPassword === currentPassword) {
+    return errorResponse(
+      'SAME_PASSWORD',
+      'Новый пароль должен отличаться от текущего пароля.',
+      400
+    );
+  }
+
+  const newPasswordHash = await sha256Hex(newPassword);
+
+  await db.batch([
+    db
+      .prepare(
+        `INSERT INTO salon_settings (key, value, description)
+         VALUES ('admin_password_sha256', ?, 'SHA-256 хеш пароля администратора')
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value`
+      )
+      .bind(newPasswordHash),
+    db
+      .prepare(
+        `INSERT INTO salon_settings (key, value, description)
+         VALUES ('admin_login', ?, 'Логин администратора')
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value`
+      )
+      .bind(creds.login),
+    db
+      .prepare(
+        `INSERT INTO salon_settings (key, value, description)
+         VALUES ('admin_credentials_updated_at', ?, 'Дата обновления учётных данных администратора')
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value`
+      )
+      .bind(nowIso),
+    db.prepare('UPDATE admin_sessions SET revoked = 1'),
+  ]);
+
+  if (auth.token) {
+    revokedSessionTokens.add(auth.token);
+  }
+  await appendBookingAuditLog(
+    db,
+    'ADMIN_ACCOUNT',
+    'admin_password_changed',
+    creds.login,
+    'Пароль администратора успешно обновлён',
+    nowIso
+  );
+
+  const session = await createAdminSessionToken(env, creds.login, newPasswordHash);
+  const cookieValue = buildAdminSessionCookie(
+    request,
+    session.token,
+    ADMIN_SESSION_TTL_SECONDS
+  );
+
+  return jsonResponse(
+    {
+      ok: true,
+      message: 'Пароль администратора успешно обновлён.',
+      login: session.login,
+      admin: { login: session.login },
+      csrfToken: session.csrfToken,
+      sessionToken: session.token,
+      expiresAt: session.expiresAt,
+    },
+    200,
+    { 'Set-Cookie': cookieValue }
+  );
 }
 
 async function handleAdminOverview(request, env) {
@@ -3097,6 +3484,7 @@ async function handleAdminOverview(request, env) {
     ok: true,
     serverToday: todayStr,
     serverTime: salonNow.timeStr,
+    admin: { login: auth.login },
     csrfToken: auth.csrfToken,
     stats: {
       totalBookings: allBookings.length,
@@ -4026,6 +4414,24 @@ export default {
         return await handleAdminSession(request, env);
       }
 
+      if (path === '/api/admin/account' && (request.method === 'POST' || request.method === 'PUT')) {
+        return await handleAdminAccountSettings(request, env, 'auto');
+      }
+
+      if (
+        path === '/api/admin/account/login' &&
+        (request.method === 'POST' || request.method === 'PUT')
+      ) {
+        return await handleAdminAccountSettings(request, env, 'login');
+      }
+
+      if (
+        path === '/api/admin/account/password' &&
+        (request.method === 'POST' || request.method === 'PUT')
+      ) {
+        return await handleAdminAccountSettings(request, env, 'password');
+      }
+
       if (
         (path === '/api/admin/overview' || path === '/api/admin/bookings') &&
         request.method === 'GET'
@@ -4104,6 +4510,9 @@ export default {
           '/api/admin/login',
           '/api/admin/logout',
           '/api/admin/session',
+          '/api/admin/account',
+          '/api/admin/account/login',
+          '/api/admin/account/password',
           '/api/admin/notifications/retry',
           '/api/admin/services',
           '/api/admin/masters',

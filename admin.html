@@ -69,15 +69,25 @@
 
           <div class="form-field">
             <label for="admin-password-input" class="field-label">Пароль</label>
-            <input
-              type="password"
-              id="admin-password-input"
-              class="field-input"
-              name="password"
-              placeholder="Введите пароль"
-              autocomplete="current-password"
-              required
-            />
+            <div class="password-input-wrap">
+              <input
+                type="password"
+                id="admin-password-input"
+                class="field-input"
+                name="password"
+                placeholder="Введите пароль"
+                autocomplete="current-password"
+                required
+              />
+              <button
+                type="button"
+                class="password-toggle-btn"
+                data-toggle-password="admin-password-input"
+                aria-label="Показать или скрыть пароль"
+              >
+                Показать
+              </button>
+            </div>
           </div>
 
           <div class="form-alert" id="admin-login-error" role="alert" hidden></div>
@@ -168,6 +178,13 @@
             data-admin-tab="notifications"
           >
             Уведомления Telegram
+          </button>
+          <button
+            type="button"
+            class="admin-tab-btn"
+            data-admin-tab="account"
+          >
+            Настройки аккаунта
           </button>
         </nav>
 
@@ -433,6 +450,167 @@
             </div>
             <div id="admin-tg-logs-list" class="admin-entities-list"></div>
           </section>
+        </div>
+
+        <!-- Вкладка 5: НАСТРОЙКИ АККАУНТА (СМЕНА ЛОГИНА И ПАРОЛЯ) -->
+        <div class="admin-tab-panel" id="admin-tab-account" hidden>
+          <div class="admin-account-grid">
+            <!-- Форма смены логина -->
+            <section class="admin-card-panel">
+              <p class="eyebrow">Безопасность входа</p>
+              <h2 class="admin-box-title">Смена логина администратора</h2>
+              <p class="field-hint">
+                Логин должен содержать от 3 до 40 символов (латинские буквы, цифры, точка, дефис или подчёркивание). Для подтверждения введите текущий пароль.
+              </p>
+
+              <form id="admin-change-login-form" class="admin-entity-form" novalidate>
+                <div class="form-field">
+                  <label for="admin-current-login-input" class="field-label">Текущий логин *</label>
+                  <input
+                    type="text"
+                    id="admin-current-login-input"
+                    class="field-input"
+                    value="admin"
+                    autocomplete="username"
+                    required
+                  />
+                </div>
+
+                <div class="form-field">
+                  <label for="admin-new-login-input" class="field-label">Новый логин *</label>
+                  <input
+                    type="text"
+                    id="admin-new-login-input"
+                    class="field-input"
+                    placeholder="Например: lea_manager"
+                    minlength="3"
+                    maxlength="40"
+                    autocomplete="off"
+                    required
+                  />
+                </div>
+
+                <div class="form-field">
+                  <label for="admin-login-current-password" class="field-label">Текущий пароль для подтверждения *</label>
+                  <div class="password-input-wrap">
+                    <input
+                      type="password"
+                      id="admin-login-current-password"
+                      class="field-input"
+                      placeholder="Введите текущий пароль"
+                      autocomplete="current-password"
+                      required
+                    />
+                    <button
+                      type="button"
+                      class="password-toggle-btn"
+                      data-toggle-password="admin-login-current-password"
+                      aria-label="Показать или скрыть пароль"
+                    >
+                      Показать
+                    </button>
+                  </div>
+                </div>
+
+                <div class="form-alert" id="admin-change-login-feedback" role="alert" hidden></div>
+
+                <div class="admin-form-buttons">
+                  <button type="submit" class="btn btn-primary btn-sm" id="admin-change-login-submit">
+                    Сохранить новый логин
+                  </button>
+                </div>
+              </form>
+            </section>
+
+            <!-- Форма смены пароля -->
+            <section class="admin-card-panel">
+              <p class="eyebrow">Криптографическая защита SHA-256</p>
+              <h2 class="admin-box-title">Смена пароля администратора</h2>
+              <p class="field-hint">
+                Новый пароль должен содержать не менее 8 символов, включая буквы и хотя бы одну цифру или спецсимвол. Пароль сохраняется в БД только в виде хеша.
+              </p>
+
+              <form id="admin-change-password-form" class="admin-entity-form" novalidate>
+                <div class="form-field">
+                  <label for="admin-current-password-input" class="field-label">Текущий пароль *</label>
+                  <div class="password-input-wrap">
+                    <input
+                      type="password"
+                      id="admin-current-password-input"
+                      class="field-input"
+                      placeholder="Введите текущий пароль"
+                      autocomplete="current-password"
+                      required
+                    />
+                    <button
+                      type="button"
+                      class="password-toggle-btn"
+                      data-toggle-password="admin-current-password-input"
+                      aria-label="Показать или скрыть пароль"
+                    >
+                      Показать
+                    </button>
+                  </div>
+                </div>
+
+                <div class="form-field">
+                  <label for="admin-new-password-input" class="field-label">Новый пароль (минимум 8 символов) *</label>
+                  <div class="password-input-wrap">
+                    <input
+                      type="password"
+                      id="admin-new-password-input"
+                      class="field-input"
+                      placeholder="Введите новый пароль"
+                      minlength="8"
+                      maxlength="128"
+                      autocomplete="new-password"
+                      required
+                    />
+                    <button
+                      type="button"
+                      class="password-toggle-btn"
+                      data-toggle-password="admin-new-password-input"
+                      aria-label="Показать или скрыть пароль"
+                    >
+                      Показать
+                    </button>
+                  </div>
+                </div>
+
+                <div class="form-field">
+                  <label for="admin-confirm-password-input" class="field-label">Подтверждение нового пароля *</label>
+                  <div class="password-input-wrap">
+                    <input
+                      type="password"
+                      id="admin-confirm-password-input"
+                      class="field-input"
+                      placeholder="Повторите новый пароль"
+                      minlength="8"
+                      maxlength="128"
+                      autocomplete="new-password"
+                      required
+                    />
+                    <button
+                      type="button"
+                      class="password-toggle-btn"
+                      data-toggle-password="admin-confirm-password-input"
+                      aria-label="Показать или скрыть пароль"
+                    >
+                      Показать
+                    </button>
+                  </div>
+                </div>
+
+                <div class="form-alert" id="admin-change-password-feedback" role="alert" hidden></div>
+
+                <div class="admin-form-buttons">
+                  <button type="submit" class="btn btn-primary btn-sm" id="admin-change-password-submit">
+                    Обновить пароль
+                  </button>
+                </div>
+              </form>
+            </section>
+          </div>
         </div>
       </section>
     </main>
