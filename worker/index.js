@@ -4116,6 +4116,10 @@ export default {
         );
       }
 
+      if (!path.startsWith('/api/') && env && env.ASSETS && typeof env.ASSETS.fetch === 'function') {
+        return await env.ASSETS.fetch(request);
+      }
+
       return errorResponse('NOT_FOUND', 'Маршрут API не найден.', 404);
     } catch (err) {
       const safeErr = sanitizeTelegramError(

@@ -9,25 +9,30 @@
       content="Защищённая панель администратора салона красоты LÉA STUDIO: управление онлайн-записями, расписанием мастеров и каталогом услуг."
     />
     <meta name="robots" content="noindex, nofollow" />
-    <link rel="stylesheet" href="/styles.css" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,500;0,600;0,700;1,400;1,600&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./styles.css" />
   </head>
   <body class="admin-page-body">
     <!-- Шапка панели администратора -->
     <header class="site-header admin-site-header">
       <div class="container header-inner">
         <div class="brand-group">
-          <a href="/" class="brand-logo" aria-label="LÉA STUDIO — На главную">
-            <span class="brand-monogram">LÉA</span>
-            <span class="brand-sub">ADMINISTRATION</span>
+          <a href="./index.html" class="brand-logo" aria-label="LÉA STUDIO — На главную">
+            <span class="brand-logo-main">LÉA STUDIO</span>
+            <span class="brand-logo-sub">Панель администратора</span>
           </a>
-          <span class="demo-pill" id="admin-connection-badge">Защищённый режим</span>
         </div>
 
         <div class="header-actions">
-          <a href="/" class="btn btn-outline btn-sm">← На сайт салона</a>
+          <a href="./index.html" class="btn btn-secondary btn-sm">← На сайт салона</a>
           <button
             type="button"
-            class="btn btn-ghost btn-sm"
+            class="btn btn-outline-danger btn-sm"
             id="admin-logout-btn"
             hidden
           >
@@ -41,36 +46,35 @@
       <!-- ЭКРАН 1: ЗАЩИЩЁННЫЙ ВХОД АДМИНИСТРАТОРА -->
       <section class="admin-auth-card" id="admin-login-section" aria-labelledby="admin-login-title">
         <div class="admin-auth-header">
-          <p class="eyebrow">Доступ ограничен • Server-Side Auth</p>
-          <h1 class="section-title" id="admin-login-title">Вход в панель управления LÉA STUDIO</h1>
+          <p class="eyebrow">Служебный доступ LÉA STUDIO</p>
+          <h1 class="section-title" id="admin-login-title">Панель администратора</h1>
           <p class="section-lead">
-            Авторизация проверяется на сервере Cloudflare Worker. Пароль передаётся по защищённому каналу и сверяется по криптографическому хешу SHA-256.
+            Введите логин и пароль для управления записями клиентов, расписанием мастеров и каталогом услуг.
           </p>
         </div>
 
         <form id="admin-login-form" class="admin-login-form" novalidate>
           <div class="form-field">
-            <label for="admin-username-input" class="field-label">Логин администратора</label>
+            <label for="admin-username-input" class="field-label">Логин</label>
             <input
               type="text"
               id="admin-username-input"
               class="field-input"
               name="login"
-               value="admin"
-              placeholder="admin"
+              placeholder="Введите логин"
               autocomplete="username"
               required
             />
           </div>
 
           <div class="form-field">
-            <label for="admin-password-input" class="field-label">Пароль администратора</label>
+            <label for="admin-password-input" class="field-label">Пароль</label>
             <input
               type="password"
               id="admin-password-input"
               class="field-input"
               name="password"
-              placeholder="Введите серверный пароль"
+              placeholder="Введите пароль"
               autocomplete="current-password"
               required
             />
@@ -79,14 +83,11 @@
           <div class="form-alert" id="admin-login-error" role="alert" hidden></div>
 
           <div class="admin-login-actions">
-            <button type="submit" class="btn btn-primary btn-lg" id="admin-login-submit">
-              Войти в панель администратора
+            <a href="./index.html" class="btn btn-secondary">Вернуться на сайт</a>
+            <button type="submit" class="btn btn-primary" id="admin-login-submit">
+              Войти
             </button>
           </div>
-
-          <p class="field-hint admin-login-hint">
-            Учётные данные проверяются на сервере по криптографическому SHA-256 хешу (переменная <code>ADMIN_PASSWORD_SHA256</code> в Cloudflare Workers).
-          </p>
         </form>
       </section>
 
@@ -490,6 +491,6 @@
       </div>
     </div>
 
-    <script type="module" src="/admin.js"></script>
+    <script type="module" src="./admin.js"></script>
   </body>
 </html>

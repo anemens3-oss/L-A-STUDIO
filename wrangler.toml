@@ -2,10 +2,12 @@ name = "l-a-studio"
 main = "worker/index.js"
 compatibility_date = "2025-02-01"
 
+# Раздача статических файлов фронтенда (HTML, CSS, JS, изображения из dist/)
+[assets]
+directory = "./dist"
+binding = "ASSETS"
+
 # Настройка базы данных Cloudflare D1.
-# Если у вас уже создана удалённая база (например, lea-booking-db или lea-studio-db),
-# проверьте её название и ID командой: npx wrangler d1 list
-# и укажите фактические database_name и database_id ниже перед деплоем.
 [[d1_databases]]
 binding = "DB"
 database_name = "lea-booking-db"
@@ -18,6 +20,7 @@ crons = ["*/5 * * * *"]
 
 # ВАЖНО: Никогда не храните секреты в wrangler.toml или в Git!
 # Задайте их интерактивно через Cloudflare CLI:
+#   npx wrangler secret put ADMIN_LOGIN
+#   npx wrangler secret put ADMIN_PASSWORD
 #   npx wrangler secret put TELEGRAM_BOT_TOKEN
 #   npx wrangler secret put TELEGRAM_CHAT_ID
-#   npx wrangler secret put ADMIN_PASSWORD_SHA256

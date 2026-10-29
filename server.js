@@ -110,12 +110,15 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
-    // Отдача статических файлов фронтенда (включая отдельную страницу /admin)
+    // Отдача статических файлов фронтенда (включая отдельную страницу /admin и подпапки GitHub Pages)
     let safePath = path.normalize(decodeURIComponent(fullUrl.pathname)).replace(/^(\.\.(\/|\\|$))+/, '');
-    if (safePath === '/' || safePath === '\\') {
+    safePath = safePath.replace(/^\/L-A-STUDIO(\/|$)/i, '/');
+    if (safePath === '/' || safePath === '\\' || safePath === '') {
       safePath = '/index.html';
     } else if (safePath === '/admin' || safePath === '/admin/') {
       safePath = '/admin.html';
+    } else if (safePath.startsWith('/admin/')) {
+      safePath = safePath.replace(/^\/admin\//, '/');
     }
 
     const candidatePaths = [
