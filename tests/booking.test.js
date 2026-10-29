@@ -1081,3 +1081,131 @@ test('17. Совместимость со старой схемой D1 (lea-book
   assert.equal(okLegacy.status, 201);
 });
 
+test('18. Сохранение сессии администратора, смена логина и пароля в D1 без выброса из панели, и поддержка подпутей /api/*', async () => {
+  const env = createTestEnv();
+
+  // 1. Вход со стандартными учётными данными
+  const loginRes = await callWorker(env, 'POST', '/api/admin/login', {
+    login: 'admin',
+    password: 'LeaAdmin2026!',
+  });
+  assert.equal(loginRes.status, 200);
+  assert.equal(loginRes.data.authenticated, true);
+  assert.ok(loginRes.data.sessionToken);
+  assert.ok(loginRes.data.csrfToken);
+
+  const sessionHeaders = {
+    Authorization: `Bearer ${loginRes.data.sessionToken}`,
+    'X-CSRF-Token': loginRes.data.csrfToken,
+  };
+
+  // 2. Проверка сессии и загрузки панели по Bearer sessionToken (гарантия отсутствия мгновенного выброса)
+  const sessionCheck = await callWorker(env, 'GET', '/api/admin/session', null, sessionHeaders);
+  assert.equal(sessionCheck.status, 200);
+  assert.equal(sessionCheck.data.authenticated, true);
+  assert.equal(sessionCheck.data.login, 'admin');
+
+  const overviewCheck = await callWorker(env, 'GET', '/api/admin/overview', null, sessionHeaders);
+  assert.equal(overviewCheck.status, 200);
+  assert.equal(overviewCheck.data.ok, true);
+
+  // 3. Попытка сменить логин с неверным текущим паролем -> 401
+  const badChangeLogin = await callWorker(
+    env,
+    'POST',
+    '/api/admin/account/login',
+    {
+      currentPassword: 'WrongCurrentPassword!',
+      newLogin: 'lea_director',
+    },
+    sessionHeaders
+  );
+  assert.equal(badChangeLogin.status, 401);
+
+  // 4. Успешная смена логина на 'lea_director'
+  const okChangeLogin = await callWorker(
+    env,
+    'POST',
+    '/api/admin/account/login',
+    {
+      currentPassword: 'LeaAdmin2026!',
+      newLogin: 'lea_director',
+    },
+    sessionHeaders
+  );
+  assert.equal(okChangeLogin.status, 200);
+  assert.equal(okChangeLogin.data.ok, true);
+  assert.equal(okChangeLogin.data.login, 'lea_director');
+  assert.ok(okChangeLogin.data.sessionToken);
+
+  const rotatedHeaders1 = {
+    Authorization: `Bearer ${okChangeLogin.data.sessionToken}`,
+    'X-CSRF-Token': okChangeLogin.data.csrfToken,
+  };
+
+  // Старый логин 'admin' больше не подходит
+  const oldLoginAttempt = await callWorker(env, 'POST', '/api/admin/login', {
+    login: 'admin',
+    password: 'LeaAdmin2026!',
+  });
+  assert.equal(oldLoginAttempt.status, 401);
+
+  // 5. Смена пароля с проверкой совпадения и минимальной длины
+  const mismatchPass = await callWorker(
+    env,
+    'POST',
+    '/api/admin/account/password',
+    {
+      currentPassword: 'LeaAdmin2026!',
+      newPassword: 'NewSecurePass2026!',
+      confirmPassword: 'DifferentPass2026!',
+    },
+    rotatedHeaders1
+  );
+  assert.equal(mismatchPass.status, 400);
+
+  const okChangePass = await callWorker(
+    env,
+    'POST',
+    '/api/admin/account/password',
+    {
+      currentPassword: 'LeaAdmin2026!',
+      newPassword: 'NewSecurePass2026!',
+      confirmPassword: 'NewSecurePass2026!',
+    },
+    rotatedHeaders1
+  );
+  assert.equal(okChangePass.status, 200);
+  assert.equal(okChangePass.data.ok, true);
+  assert.ok(okChangePass.data.sessionToken);
+
+  // 6. Старый пароль больше не работает, а новый логин + новый пароль работают
+  const oldPassAttempt = await callWorker(env, 'POST', '/api/admin/login', {
+    login: 'lea_director',
+    password: 'LeaAdmin2026!',
+  });
+  assert.equal(oldPassAttempt.status, 401);
+
+  const newCredsLogin = await callWorker(env, 'POST', '/api/admin/login', {
+    login: 'lea_director',
+    password: 'NewSecurePass2026!',
+  });
+  assert.equal(newCredsLogin.status, 200);
+  assert.equal(newCredsLogin.data.authenticated, true);
+  assert.equal(newCredsLogin.data.login, 'lea_director');
+
+  // 7. Проверка маршрутизации API при вызове с префиксом подпути (/L-A-STUDIO/api/catalog и /api/services)
+  const subpathCatalog = await callWorker(env, 'GET', '/L-A-STUDIO/api/catalog');
+  assert.equal(subpathCatalog.status, 200);
+  assert.equal(subpathCatalog.data.ok, true);
+  assert.ok(Array.isArray(subpathCatalog.data.services));
+  assert.ok(Array.isArray(subpathCatalog.data.masters));
+  assert.ok(Array.isArray(subpathCatalog.data.masters[0].workingDays));
+
+  const servicesEndpoint = await callWorker(env, 'GET', '/api/services');
+  assert.equal(servicesEndpoint.status, 200);
+  assert.equal(servicesEndpoint.data.ok, true);
+  assert.ok(servicesEndpoint.data.services.length >= 6);
+});
+
+

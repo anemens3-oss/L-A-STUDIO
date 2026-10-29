@@ -37,6 +37,7 @@ const adminState = {
   authenticated: false,
   csrfToken: sessionStorage.getItem('lea_admin_csrf') || '',
   sessionToken: sessionStorage.getItem('lea_admin_token') || '',
+  login: sessionStorage.getItem('lea_admin_login') || 'admin',
   serverToday: '',
   stats: null,
   bookings: [],
@@ -94,7 +95,8 @@ async function adminApiFetch(path, options = {}) {
   });
   let data = null;
   try {
-    data = await response.json();
+    const rawText = await response.text();
+    data = rawText ? JSON.parse(rawText) : null;
   } catch {
     data = null;
   }
@@ -130,21 +132,37 @@ function formatStatusLabel(status) {
   }
 }
 
+function updateAdminLoginLabels() {
+  const activeLogin = adminState.login || 'admin';
+  const badge = document.getElementById('admin-active-login-badge');
+  const currentLoginInput = document.getElementById('admin-account-current-login');
+  if (badge) {
+    badge.textContent = `Аккаунт: ${activeLogin}`;
+    badge.hidden = !adminState.authenticated;
+  }
+  if (currentLoginInput) {
+    currentLoginInput.value = activeLogin;
+  }
+}
+
 function handleUnauthenticatedState() {
   adminState.authenticated = false;
   adminState.csrfToken = '';
   adminState.sessionToken = '';
   sessionStorage.removeItem('lea_admin_csrf');
   sessionStorage.removeItem('lea_admin_token');
+  sessionStorage.removeItem('lea_admin_login');
 
   stopAutoRefresh();
 
   const loginSection = document.getElementById('admin-login-section');
   const dashboardSection = document.getElementById('admin-dashboard-section');
   const logoutBtn = document.getElementById('admin-logout-btn');
+  const badge = document.getElementById('admin-active-login-badge');
   if (loginSection) loginSection.hidden = false;
   if (dashboardSection) dashboardSection.hidden = true;
   if (logoutBtn) logoutBtn.hidden = true;
+  if (badge) badge.hidden = true;
 }
 
 function handleAuthenticatedState() {
@@ -155,6 +173,7 @@ function handleAuthenticatedState() {
   if (loginSection) loginSection.hidden = true;
   if (dashboardSection) dashboardSection.hidden = false;
   if (logoutBtn) logoutBtn.hidden = false;
+  updateAdminLoginLabels();
 
   startAutoRefresh();
 }
@@ -193,6 +212,14 @@ async function loadDashboardData({ silent = false } = {}) {
   if (data.csrfToken) {
     adminState.csrfToken = data.csrfToken;
     sessionStorage.setItem('lea_admin_csrf', data.csrfToken);
+  }
+  if (data.sessionToken) {
+    adminState.sessionToken = data.sessionToken;
+    sessionStorage.setItem('lea_admin_token', data.sessionToken);
+  }
+  if (data.login) {
+    adminState.login = data.login;
+    sessionStorage.setItem('lea_admin_login', data.login);
   }
 
   adminState.serverToday = data.serverToday || '';
@@ -1065,8 +1092,10 @@ function initAdminEvents() {
 
         adminState.csrfToken = data.csrfToken || '';
         adminState.sessionToken = data.sessionToken || '';
+        adminState.login = data.login || (loginInput?.value || 'admin').trim();
         sessionStorage.setItem('lea_admin_csrf', adminState.csrfToken);
         sessionStorage.setItem('lea_admin_token', adminState.sessionToken);
+        sessionStorage.setItem('lea_admin_login', adminState.login);
         if (passInput) passInput.value = '';
 
         await loadDashboardData();
@@ -1097,10 +1126,13 @@ function initAdminEvents() {
       document.querySelectorAll('[data-admin-tab]').forEach((b) => {
         b.classList.toggle('is-active', b === btn);
       });
-      ['bookings', 'services', 'masters', 'notifications'].forEach((t) => {
+      ['bookings', 'services', 'masters', 'notifications', 'account'].forEach((t) => {
         const panel = document.getElementById(`admin-tab-${t}`);
         if (panel) panel.hidden = t !== targetTab;
       });
+      if (targetTab === 'account') {
+        updateAdminLoginLabels();
+      }
     });
   });
 
@@ -1423,6 +1455,141 @@ function initAdminEvents() {
       loadDashboardData({ silent: true });
     }
   });
+
+  // Смена логина администратора
+  const changeLoginForm = document.getElementById('admin-change-login-form');
+  if (changeLoginForm) {
+    changeLoginForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const currentPasswordEl = document.getElementById('admin-account-current-pass-for-login');
+      const newLoginEl = document.getElementById('admin-account-new-login');
+      const submitBtn = document.getElementById('admin-change-login-submit');
+      const feedbackEl = document.getElementById('admin-change-login-feedback');
+
+      const currentPassword = currentPasswordEl?.value || '';
+      const newLogin = (newLoginEl?.value || '').trim();
+
+      if (feedbackEl) feedbackEl.hidden = true;
+      if (submitBtn) submitBtn.disabled = true;
+
+      try {
+        const { response, data } = await adminApiFetch('/api/admin/account/login', {
+          method: 'POST',
+          body: JSON.stringify({ currentPassword, newLogin }),
+        });
+
+        if (!response.ok || !data?.ok) {
+          if (feedbackEl) {
+            feedbackEl.className = 'form-alert is-error';
+            feedbackEl.textContent = data?.error?.message || 'Ошибка смены логина.';
+            feedbackEl.hidden = false;
+          }
+          return;
+        }
+
+        if (data.sessionToken) {
+          adminState.sessionToken = data.sessionToken;
+          sessionStorage.setItem('lea_admin_token', data.sessionToken);
+        }
+        if (data.csrfToken) {
+          adminState.csrfToken = data.csrfToken;
+          sessionStorage.setItem('lea_admin_csrf', data.csrfToken);
+        }
+        if (data.login) {
+          adminState.login = data.login;
+          sessionStorage.setItem('lea_admin_login', data.login);
+        }
+        updateAdminLoginLabels();
+
+        if (currentPasswordEl) currentPasswordEl.value = '';
+        if (newLoginEl) newLoginEl.value = '';
+
+        if (feedbackEl) {
+          feedbackEl.className = 'form-alert is-success';
+          feedbackEl.textContent = data.message || `Логин успешно изменён на «${adminState.login}».`;
+          feedbackEl.hidden = false;
+        }
+      } finally {
+        if (submitBtn) submitBtn.disabled = false;
+      }
+    });
+  }
+
+  // Смена пароля администратора
+  const changePasswordForm = document.getElementById('admin-change-password-form');
+  if (changePasswordForm) {
+    changePasswordForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const currentPasswordEl = document.getElementById('admin-account-current-password');
+      const newPasswordEl = document.getElementById('admin-account-new-password');
+      const confirmPasswordEl = document.getElementById('admin-account-confirm-password');
+      const submitBtn = document.getElementById('admin-change-password-submit');
+      const feedbackEl = document.getElementById('admin-change-password-feedback');
+
+      const currentPassword = currentPasswordEl?.value || '';
+      const newPassword = newPasswordEl?.value || '';
+      const confirmPassword = confirmPasswordEl?.value || '';
+
+      if (feedbackEl) feedbackEl.hidden = true;
+      if (submitBtn) submitBtn.disabled = true;
+
+      try {
+        const { response, data } = await adminApiFetch('/api/admin/account/password', {
+          method: 'POST',
+          body: JSON.stringify({ currentPassword, newPassword, confirmPassword }),
+        });
+
+        if (!response.ok || !data?.ok) {
+          if (feedbackEl) {
+            feedbackEl.className = 'form-alert is-error';
+            feedbackEl.textContent = data?.error?.message || 'Ошибка смены пароля.';
+            feedbackEl.hidden = false;
+          }
+          return;
+        }
+
+        if (data.sessionToken) {
+          adminState.sessionToken = data.sessionToken;
+          sessionStorage.setItem('lea_admin_token', data.sessionToken);
+        }
+        if (data.csrfToken) {
+          adminState.csrfToken = data.csrfToken;
+          sessionStorage.setItem('lea_admin_csrf', data.csrfToken);
+        }
+        if (data.login) {
+          adminState.login = data.login;
+          sessionStorage.setItem('lea_admin_login', data.login);
+        }
+        updateAdminLoginLabels();
+
+        if (currentPasswordEl) currentPasswordEl.value = '';
+        if (newPasswordEl) newPasswordEl.value = '';
+        if (confirmPasswordEl) confirmPasswordEl.value = '';
+
+        if (feedbackEl) {
+          feedbackEl.className = 'form-alert is-success';
+          feedbackEl.textContent = data.message || 'Пароль администратора успешно обновлён.';
+          feedbackEl.hidden = false;
+        }
+      } finally {
+        if (submitBtn) submitBtn.disabled = false;
+      }
+    });
+  }
+
+  // Переключение видимости пароля
+  document.querySelectorAll('[data-toggle-password]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const targetId = btn.getAttribute('data-toggle-password');
+      const input = targetId ? document.getElementById(targetId) : null;
+      if (!input) return;
+      const isPassword = input.type === 'password';
+      input.type = isPassword ? 'text' : 'password';
+      btn.setAttribute('aria-pressed', String(isPassword));
+      btn.setAttribute('aria-label', isPassword ? 'Скрыть пароль' : 'Показать пароль');
+      btn.classList.toggle('is-visible', isPassword);
+    });
+  });
 }
 
 document.addEventListener('DOMContentLoaded', async () => {
@@ -1430,3 +1597,4 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Проверяем, есть ли уже активная серверная сессия (Cookie или токен)
   await loadDashboardData({ silent: true });
 });
+

@@ -386,10 +386,8 @@ function buildAdminSessionCookie(request, token, maxAgeSeconds = ADMIN_SESSION_T
   }
 
   const encodedVal = token ? encodeURIComponent(token) : '';
-  // Для HTTPS (включая preview iframe) используем SameSite=None; Secure,
-  // а для локального HTTP (localhost) — SameSite=Lax без флага Secure, чтобы браузер не отбрасывал cookie.
   const securityFlags = isHttps
-    ? 'HttpOnly; Secure; SameSite=None; Path=/'
+    ? 'HttpOnly; Secure; SameSite=Strict; Path=/'
     : 'HttpOnly; SameSite=Lax; Path=/';
 
   return `lea_admin_session=${encodedVal}; ${securityFlags}; Max-Age=${maxAgeSeconds}`;
@@ -800,86 +798,180 @@ async function ensureDatabaseReady(db) {
       await db.prepare(sql).run();
     }
 
-    // 2. Проверяем колонки существующей таблицы services (на случай старой схемы с category / category_label)
+    // 2. Проверяем и дополняем колонки существующей таблицы services
     const serviceCols = await getTableColumns(db, 'services');
-    if (!serviceCols.has('category_id')) {
-      await db
-        .prepare(`ALTER TABLE services ADD COLUMN category_id TEXT NOT NULL DEFAULT 'manicure'`)
-        .run();
-      if (serviceCols.has('category')) {
-        await db.prepare(`UPDATE services SET category_id = category WHERE category IS NOT NULL`).run();
+    const alterServiceColumns = [
+      ['category_id', `ALTER TABLE services ADD COLUMN category_id TEXT NOT NULL DEFAULT 'manicure'`],
+      ['title', `ALTER TABLE services ADD COLUMN title TEXT NOT NULL DEFAULT ''`],
+      ['description', `ALTER TABLE services ADD COLUMN description TEXT NOT NULL DEFAULT ''`],
+      ['duration_minutes', `ALTER TABLE services ADD COLUMN duration_minutes INTEGER NOT NULL DEFAULT 60`],
+      ['price_rub', `ALTER TABLE services ADD COLUMN price_rub INTEGER NOT NULL DEFAULT 2500`],
+      ['is_active', `ALTER TABLE services ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1`],
+      ['is_demo', `ALTER TABLE services ADD COLUMN is_demo INTEGER NOT NULL DEFAULT 0`],
+      ['sort_order', `ALTER TABLE services ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 50`],
+    ];
+    for (const [colName, sql] of alterServiceColumns) {
+      if (!serviceCols.has(colName)) {
+        try {
+          await db.prepare(sql).run();
+          serviceCols.add(colName);
+        } catch {
+          // Игнорируем, если колонка уже существует
+        }
       }
     }
-    if (!serviceCols.has('is_demo')) {
-      await db.prepare(`ALTER TABLE services ADD COLUMN is_demo INTEGER NOT NULL DEFAULT 0`).run();
+
+    try {
+      if (serviceCols.has('category')) {
+        await db
+          .prepare(
+            `UPDATE services SET category_id = category WHERE (category_id IS NULL OR category_id = '') AND category IS NOT NULL`
+          )
+          .run();
+      }
+      if (serviceCols.has('name')) {
+        await db
+          .prepare(
+            `UPDATE services SET title = name WHERE (title IS NULL OR title = '') AND name IS NOT NULL`
+          )
+          .run();
+      }
+      if (serviceCols.has('duration')) {
+        await db
+          .prepare(
+            `UPDATE services SET duration_minutes = duration WHERE (duration_minutes IS NULL OR duration_minutes = 0) AND duration IS NOT NULL`
+          )
+          .run();
+      }
+      if (serviceCols.has('price')) {
+        await db
+          .prepare(
+            `UPDATE services SET price_rub = price WHERE (price_rub IS NULL OR price_rub = 0) AND price IS NOT NULL`
+          )
+          .run();
+      }
+    } catch {
+      // Продолжаем при любых расхождениях типов старых колонок
     }
 
     // Если в старой схеме были категории в таблице services (category, category_label), переносим их в service_categories
-    if (serviceCols.has('category') && serviceCols.has('category_label')) {
-      await db
-        .prepare(
-          `INSERT OR IGNORE INTO service_categories (id, title, subtitle, sort_order, is_active)
-           SELECT DISTINCT category, category_label, '', 1, 1 FROM services WHERE category IS NOT NULL`
-        )
-        .run();
-    }
-
-    // 3. Проверяем наличие старой таблицы staff и working_hours
-    const staffCols = await getTableColumns(db, 'staff');
-    if (staffCols.size > 0) {
-      // Переносим мастеров из staff в masters без перезаписи уже существующих
-      await db
-        .prepare(
-          `INSERT OR IGNORE INTO masters (id, name, role, specialization, bio, experience_years, portrait_key, is_active, is_demo, sort_order)
-           SELECT id, name, role, COALESCE(default_category, role), 'Мастер студии LÉA', 5, 'anna', is_active, 0, 1
-           FROM staff`
-        )
-        .run();
-
-      if (staffCols.has('default_category')) {
+    try {
+      if (serviceCols.has('category') && serviceCols.has('category_label')) {
         await db
           .prepare(
-            `INSERT OR IGNORE INTO master_services (master_id, service_id)
-             SELECT st.id, sv.id
-             FROM staff st
-             JOIN services sv ON sv.category_id = st.default_category`
+            `INSERT OR IGNORE INTO service_categories (id, title, subtitle, sort_order, is_active)
+             SELECT DISTINCT category, category_label, '', 1, 1 FROM services WHERE category IS NOT NULL`
           )
           .run();
+      }
+    } catch {
+      // Не прерываем инициализацию
+    }
+
+    // 3. Проверяем колонки таблицы masters и переносим данные из старой таблицы staff / working_hours
+    const masterCols = await getTableColumns(db, 'masters');
+    const alterMasterColumns = [
+      ['role', `ALTER TABLE masters ADD COLUMN role TEXT NOT NULL DEFAULT 'Мастер студии'`],
+      ['specialization', `ALTER TABLE masters ADD COLUMN specialization TEXT NOT NULL DEFAULT ''`],
+      ['bio', `ALTER TABLE masters ADD COLUMN bio TEXT NOT NULL DEFAULT ''`],
+      ['experience_years', `ALTER TABLE masters ADD COLUMN experience_years INTEGER NOT NULL DEFAULT 5`],
+      ['portrait_key', `ALTER TABLE masters ADD COLUMN portrait_key TEXT NOT NULL DEFAULT 'anna'`],
+      ['is_active', `ALTER TABLE masters ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1`],
+      ['is_demo', `ALTER TABLE masters ADD COLUMN is_demo INTEGER NOT NULL DEFAULT 0`],
+      ['sort_order', `ALTER TABLE masters ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 10`],
+    ];
+    for (const [colName, sql] of alterMasterColumns) {
+      if (!masterCols.has(colName)) {
+        try {
+          await db.prepare(sql).run();
+          masterCols.add(colName);
+        } catch {
+          // Игнорируем
+        }
+      }
+    }
+
+    const staffCols = await getTableColumns(db, 'staff');
+    if (staffCols.size > 0 && staffCols.has('id') && staffCols.has('name')) {
+      try {
+        const roleExpr = staffCols.has('role') ? 'role' : `'Мастер студии'`;
+        const specExpr = staffCols.has('default_category')
+          ? `COALESCE(default_category, ${roleExpr})`
+          : staffCols.has('specialization')
+          ? 'specialization'
+          : roleExpr;
+        const activeExpr = staffCols.has('is_active') ? 'is_active' : '1';
+
+        await db
+          .prepare(
+            `INSERT OR IGNORE INTO masters (id, name, role, specialization, bio, experience_years, portrait_key, is_active, is_demo, sort_order)
+             SELECT id, name, ${roleExpr}, ${specExpr}, 'Мастер студии LÉA', 5, 'anna', ${activeExpr}, 0, 1
+             FROM staff`
+          )
+          .run();
+
+        if (staffCols.has('default_category')) {
+          await db
+            .prepare(
+              `INSERT OR IGNORE INTO master_services (master_id, service_id)
+               SELECT st.id, sv.id
+               FROM staff st
+               JOIN services sv ON sv.category_id = st.default_category`
+            )
+            .run();
+        }
+      } catch {
+        // Не прерываем инициализацию при нестандартной таблице staff
       }
     }
 
     const workingHoursCols = await getTableColumns(db, 'working_hours');
-    if (workingHoursCols.size > 0) {
-      const { results: whRows } = await db
-        .prepare(`SELECT day_of_week, open_time, close_time, break_start, break_end, is_closed FROM working_hours`)
-        .all();
-      const { results: allMasters } = await db.prepare(`SELECT id FROM masters`).all();
-      if ((whRows || []).length > 0 && (allMasters || []).length > 0) {
-        for (const m of allMasters) {
-          for (const wh of whRows) {
-            const startMin = parseHHMMToMinutes(wh.open_time) ?? 600;
-            const endMin = parseHHMMToMinutes(wh.close_time) ?? 1260;
-            const breakStartMin = wh.break_start ? parseHHMMToMinutes(wh.break_start) : null;
-            const breakEndMin = wh.break_end ? parseHHMMToMinutes(wh.break_end) : null;
-            const isWorking = Number(wh.is_closed) === 1 ? 0 : 1;
-            await db
-              .prepare(
-                `INSERT OR IGNORE INTO master_schedules (
-                  master_id, day_of_week, is_working, start_minute, end_minute, break_start_minute, break_end_minute
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)`
-              )
-              .bind(
-                m.id,
-                Number(wh.day_of_week),
-                isWorking,
-                startMin,
-                endMin,
-                breakStartMin,
-                breakEndMin
-              )
-              .run();
+    if (
+      workingHoursCols.size > 0 &&
+      workingHoursCols.has('day_of_week') &&
+      workingHoursCols.has('open_time') &&
+      workingHoursCols.has('close_time')
+    ) {
+      try {
+        const breakStartCol = workingHoursCols.has('break_start') ? 'break_start' : 'NULL AS break_start';
+        const breakEndCol = workingHoursCols.has('break_end') ? 'break_end' : 'NULL AS break_end';
+        const isClosedCol = workingHoursCols.has('is_closed') ? 'is_closed' : '0 AS is_closed';
+
+        const { results: whRows } = await db
+          .prepare(
+            `SELECT day_of_week, open_time, close_time, ${breakStartCol}, ${breakEndCol}, ${isClosedCol} FROM working_hours`
+          )
+          .all();
+        const { results: allMasters } = await db.prepare(`SELECT id FROM masters`).all();
+        if ((whRows || []).length > 0 && (allMasters || []).length > 0) {
+          for (const m of allMasters) {
+            for (const wh of whRows) {
+              const startMin = parseHHMMToMinutes(wh.open_time) ?? 600;
+              const endMin = parseHHMMToMinutes(wh.close_time) ?? 1260;
+              const breakStartMin = wh.break_start ? parseHHMMToMinutes(wh.break_start) : null;
+              const breakEndMin = wh.break_end ? parseHHMMToMinutes(wh.break_end) : null;
+              const isWorking = Number(wh.is_closed) === 1 ? 0 : 1;
+              await db
+                .prepare(
+                  `INSERT OR IGNORE INTO master_schedules (
+                    master_id, day_of_week, is_working, start_minute, end_minute, break_start_minute, break_end_minute
+                  ) VALUES (?, ?, ?, ?, ?, ?, ?)`
+                )
+                .bind(
+                  m.id,
+                  Number(wh.day_of_week),
+                  isWorking,
+                  startMin,
+                  endMin,
+                  breakStartMin,
+                  breakEndMin
+                )
+                .run();
+            }
           }
         }
+      } catch {
+        // Продолжаем при ошибке переноса working_hours
       }
     }
 
@@ -890,6 +982,8 @@ async function ensureDatabaseReady(db) {
       bookingCols.has('last_name') &&
       bookingCols.has('phone') &&
       bookingCols.has('staff_id');
+    const hasLegacyServiceCategoryCols =
+      serviceCols.has('category') && serviceCols.has('category_label');
 
     const alterBookingColumns = [
       ['master_id', `ALTER TABLE bookings ADD COLUMN master_id TEXT NOT NULL DEFAULT 'any'`],
@@ -911,206 +1005,307 @@ async function ensureDatabaseReady(db) {
 
     for (const [colName, sql] of alterBookingColumns) {
       if (!bookingCols.has(colName)) {
-        await db.prepare(sql).run();
+        try {
+          await db.prepare(sql).run();
+          bookingCols.add(colName);
+        } catch {
+          // Игнорируем
+        }
       }
     }
 
     // Если в bookings были записи в старом формате, синхронизируем поля и заполняем booked_slots
-    if (hasLegacyBookingColumns) {
-      await db
-        .prepare(
-          `UPDATE bookings
-           SET master_id = CASE WHEN master_id = '' OR master_id = 'any' THEN staff_id ELSE master_id END,
-               start_minute = COALESCE(start_minutes, start_minute),
-               end_minute = COALESCE(end_minutes, end_minute),
-               client_first_name = CASE WHEN client_first_name = '' THEN first_name ELSE client_first_name END,
-               client_last_name = CASE WHEN client_last_name = '' THEN last_name ELSE client_last_name END,
-               client_name = CASE
-                 WHEN client_name = '' THEN TRIM(first_name || ' ' || last_name)
-                 ELSE client_name
-               END,
-               client_phone = CASE WHEN client_phone = '' THEN phone ELSE client_phone END,
-               notification_status = COALESCE(telegram_status, notification_status, 'pending')
-           WHERE client_name = '' OR client_phone = ''`
-        )
-        .run();
+    try {
+      if (hasLegacyBookingColumns) {
+        await db
+          .prepare(
+            `UPDATE bookings
+             SET master_id = CASE WHEN master_id = '' OR master_id = 'any' THEN staff_id ELSE master_id END,
+                 start_minute = COALESCE(start_minutes, start_minute),
+                 end_minute = COALESCE(end_minutes, end_minute),
+                 client_first_name = CASE WHEN client_first_name = '' THEN first_name ELSE client_first_name END,
+                 client_last_name = CASE WHEN client_last_name = '' THEN last_name ELSE client_last_name END,
+                 client_name = CASE
+                   WHEN client_name = '' THEN TRIM(first_name || ' ' || last_name)
+                   ELSE client_name
+                 END,
+                 client_phone = CASE WHEN client_phone = '' THEN phone ELSE client_phone END,
+                 notification_status = COALESCE(telegram_status, notification_status, 'pending')
+             WHERE client_name = '' OR client_phone = ''`
+          )
+          .run();
 
-      // Синхронизируем подтверждённые записи из старой схемы в booked_slots для атомарной блокировки слотов
-      const { results: activeLegacyBookings } = await db
-        .prepare(
-          `SELECT id, master_id, staff_id, service_id, booking_date, start_minute, end_minute
-           FROM bookings
-           WHERE status = 'confirmed'`
-        )
-        .all();
+        // Синхронизируем подтверждённые записи из старой схемы в booked_slots для атомарной блокировки слотов
+        const { results: activeLegacyBookings } = await db
+          .prepare(
+            `SELECT id, master_id, staff_id, service_id, booking_date, start_minute, end_minute
+             FROM bookings
+             WHERE status = 'confirmed'`
+          )
+          .all();
 
-      for (const b of activeLegacyBookings || []) {
-        let effectiveMasterId = b.master_id || b.staff_id;
-        if (!effectiveMasterId || effectiveMasterId === 'any') {
-          const matchedMaster = await db
-            .prepare(
-              `SELECT master_id FROM master_services WHERE service_id = ? LIMIT 1`
-            )
-            .bind(b.service_id)
-            .first();
-          if (matchedMaster?.master_id) {
-            effectiveMasterId = matchedMaster.master_id;
-            await db
-              .prepare(`UPDATE bookings SET master_id = ? WHERE id = ?`)
-              .bind(effectiveMasterId, b.id)
-              .run();
-          }
-        }
-        if (effectiveMasterId && effectiveMasterId !== 'any') {
-          const startM = Number(b.start_minute);
-          const endM = Number(b.end_minute);
-          for (let m = startM; m < endM; m += SLOT_UNIT_MINUTES) {
-            await db
+        for (const b of activeLegacyBookings || []) {
+          let effectiveMasterId = b.master_id || b.staff_id;
+          if (!effectiveMasterId || effectiveMasterId === 'any') {
+            const matchedMaster = await db
               .prepare(
-                `INSERT OR IGNORE INTO booked_slots (master_id, slot_date, slot_minute, booking_id)
-                 VALUES (?, ?, ?, ?)`
+                `SELECT master_id FROM master_services WHERE service_id = ? LIMIT 1`
               )
-              .bind(effectiveMasterId, b.booking_date, m, b.id)
-              .run();
+              .bind(b.service_id)
+              .first();
+            if (matchedMaster?.master_id) {
+              effectiveMasterId = matchedMaster.master_id;
+              await db
+                .prepare(`UPDATE bookings SET master_id = ? WHERE id = ?`)
+                .bind(effectiveMasterId, b.id)
+                .run();
+            }
+          }
+          if (effectiveMasterId && effectiveMasterId !== 'any') {
+            const startM = Number(b.start_minute);
+            const endM = Number(b.end_minute);
+            for (let m = startM; m < endM; m += SLOT_UNIT_MINUTES) {
+              await db
+                .prepare(
+                  `INSERT OR IGNORE INTO booked_slots (master_id, slot_date, slot_minute, booking_id)
+                   VALUES (?, ?, ?, ?)`
+                )
+                .bind(effectiveMasterId, b.booking_date, m, b.id)
+                .run();
+            }
           }
         }
+      } else {
+        // В новой схеме заполняем client_first_name / client_last_name для записей, где был только client_name
+        await db
+          .prepare(
+            `UPDATE bookings
+             SET client_first_name = CASE
+               WHEN client_first_name = '' AND INSTR(TRIM(client_name), ' ') > 0
+                 THEN SUBSTR(TRIM(client_name), 1, INSTR(TRIM(client_name), ' ') - 1)
+               WHEN client_first_name = ''
+                 THEN TRIM(client_name)
+               ELSE client_first_name
+             END,
+             client_last_name = CASE
+               WHEN client_last_name = '' AND INSTR(TRIM(client_name), ' ') > 0
+                 THEN TRIM(SUBSTR(TRIM(client_name), INSTR(TRIM(client_name), ' ') + 1))
+               ELSE client_last_name
+             END
+             WHERE client_first_name = '' AND client_name != ''`
+          )
+          .run();
       }
-    } else {
-      // В новой схеме заполняем client_first_name / client_last_name для записей, где был только client_name
-      await db
-        .prepare(
-          `UPDATE bookings
-           SET client_first_name = CASE
-             WHEN client_first_name = '' AND INSTR(TRIM(client_name), ' ') > 0
-               THEN SUBSTR(TRIM(client_name), 1, INSTR(TRIM(client_name), ' ') - 1)
-             WHEN client_first_name = ''
-               THEN TRIM(client_name)
-             ELSE client_first_name
-           END,
-           client_last_name = CASE
-             WHEN client_last_name = '' AND INSTR(TRIM(client_name), ' ') > 0
-               THEN TRIM(SUBSTR(TRIM(client_name), INSTR(TRIM(client_name), ' ') + 1))
-             ELSE client_last_name
-           END
-           WHERE client_first_name = '' AND client_name != ''`
-        )
-        .run();
+    } catch {
+      // Не прерываем работу при миграции старых записей bookings
     }
 
     // 5. Проверяем колонки notification_logs (в старой схеме не было channel, attempt, http_status, error_code, created_at)
     const notifLogCols = await getTableColumns(db, 'notification_logs');
     if (notifLogCols.size > 0) {
-      if (!notifLogCols.has('channel')) {
-        await db
-          .prepare(`ALTER TABLE notification_logs ADD COLUMN channel TEXT NOT NULL DEFAULT 'telegram'`)
-          .run();
-      }
-      if (!notifLogCols.has('attempt')) {
-        await db
-          .prepare(`ALTER TABLE notification_logs ADD COLUMN attempt INTEGER NOT NULL DEFAULT 1`)
-          .run();
-      }
-      if (!notifLogCols.has('http_status')) {
-        await db.prepare(`ALTER TABLE notification_logs ADD COLUMN http_status INTEGER`).run();
-      }
-      if (!notifLogCols.has('error_code')) {
-        await db
-          .prepare(`ALTER TABLE notification_logs ADD COLUMN error_code TEXT NOT NULL DEFAULT ''`)
-          .run();
-      }
-      if (!notifLogCols.has('created_at')) {
-        await db
-          .prepare(`ALTER TABLE notification_logs ADD COLUMN created_at TEXT NOT NULL DEFAULT ''`)
-          .run();
-        if (notifLogCols.has('attempted_at')) {
+      try {
+        if (!notifLogCols.has('channel')) {
           await db
-            .prepare(`UPDATE notification_logs SET created_at = attempted_at WHERE created_at = ''`)
+            .prepare(`ALTER TABLE notification_logs ADD COLUMN channel TEXT NOT NULL DEFAULT 'telegram'`)
             .run();
         }
+        if (!notifLogCols.has('attempt')) {
+          await db
+            .prepare(`ALTER TABLE notification_logs ADD COLUMN attempt INTEGER NOT NULL DEFAULT 1`)
+            .run();
+        }
+        if (!notifLogCols.has('http_status')) {
+          await db.prepare(`ALTER TABLE notification_logs ADD COLUMN http_status INTEGER`).run();
+        }
+        if (!notifLogCols.has('error_code')) {
+          await db
+            .prepare(`ALTER TABLE notification_logs ADD COLUMN error_code TEXT NOT NULL DEFAULT ''`)
+            .run();
+        }
+        if (!notifLogCols.has('created_at')) {
+          await db
+            .prepare(`ALTER TABLE notification_logs ADD COLUMN created_at TEXT NOT NULL DEFAULT ''`)
+            .run();
+          if (notifLogCols.has('attempted_at')) {
+            await db
+              .prepare(`UPDATE notification_logs SET created_at = attempted_at WHERE created_at = ''`)
+              .run();
+          }
+        }
+      } catch {
+        // Игнорируем
       }
     }
 
-    // 6. Если база была абсолютно пустой (нет ни одной услуги и ни одного мастера), заполняем базовый каталог LÉA STUDIO
-    const srvCountRow = await db.prepare(`SELECT COUNT(*) AS cnt FROM services`).first();
-    if (!srvCountRow || Number(srvCountRow.cnt) === 0) {
-      await seedInitialCatalogIfEmpty(db);
-    }
+    // 6. Гарантируем наличие стартовых настроек, категорий, услуг, мастеров и расписаний без перезаписи существующих данных
+    await seedInitialCatalogIfEmpty(db, { hasLegacyServiceCategoryCols });
 
-    const compatInfo = { hasLegacyBookingColumns };
+    const compatInfo = { hasLegacyBookingColumns, hasLegacyServiceCategoryCols };
     initializedDatabases.add(db);
     dbLegacyColumnsCache.set(db, compatInfo);
     return compatInfo;
   } catch (err) {
     console.error('[DB Compat Check Warning]', err && err.message ? err.message : err);
-    return { hasLegacyBookingColumns: false };
+    return { hasLegacyBookingColumns: false, hasLegacyServiceCategoryCols: false };
   }
 }
 
-async function seedInitialCatalogIfEmpty(db) {
-  await db
-    .prepare(
-      `INSERT OR IGNORE INTO salon_settings (key, value, description) VALUES
-        ('salon_name', 'LÉA STUDIO', 'Название салона'),
-        ('is_demo_data', 'true', 'Признак стартовых данных'),
-        ('timezone', 'Europe/Moscow', 'Часовой пояс салона'),
-        ('timezone_offset_minutes', '180', 'Смещение часового пояса от UTC в минутах'),
-        ('min_lead_minutes', '30', 'Минимальное время до начала записи'),
-        ('slot_step_minutes', '30', 'Шаг сетки слотов'),
-        ('hold_ttl_seconds', '300', 'Время удержания слота'),
-        ('booking_horizon_days', '45', 'Горизонт записи в днях')`
-    )
-    .run();
+async function seedInitialCatalogIfEmpty(db, { hasLegacyServiceCategoryCols = false } = {}) {
+  try {
+    await db
+      .prepare(
+        `INSERT OR IGNORE INTO salon_settings (key, value, description) VALUES
+          ('salon_name', 'LÉA STUDIO', 'Название салона'),
+          ('is_demo_data', 'true', 'Признак стартовых данных'),
+          ('timezone', 'Europe/Moscow', 'Часовой пояс салона'),
+          ('timezone_offset_minutes', '180', 'Смещение часового пояса от UTC в минутах'),
+          ('min_lead_minutes', '30', 'Минимальное время до начала записи'),
+          ('slot_step_minutes', '30', 'Шаг сетки слотов'),
+          ('hold_ttl_seconds', '300', 'Время удержания слота'),
+          ('booking_horizon_days', '45', 'Горизонт записи в днях')`
+      )
+      .run();
+  } catch {
+    // Игнорируем
+  }
 
-  await db
-    .prepare(
-      `INSERT OR IGNORE INTO service_categories (id, title, subtitle, sort_order, is_active) VALUES
-        ('manicure', 'Маникюр', 'Атравматичный уход за кутикулой, архитектура и стойкие покрытия', 1, 1),
-        ('pedicure', 'Педикюр', 'SMART-обработка стоп, эстетика и спа-ритуалы расслабления', 2, 1),
-        ('brows_lashes', 'Брови и ресницы', 'Естественная геометрия взгляда, бережное ламинирование и уход', 3, 1),
-        ('facial_care', 'Уход за лицом', 'Эстетическая косметология, лимфодренажные массажи и гидробаланс', 4, 1),
-        ('hair_styling', 'Укладки и причёски', 'Воздушные дневные укладки, вечерние текстуры и молекулярный уход', 5, 1)`
-    )
-    .run();
+  try {
+    await db
+      .prepare(
+        `INSERT OR IGNORE INTO service_categories (id, title, subtitle, sort_order, is_active) VALUES
+          ('manicure', 'Маникюр', 'Атравматичный уход за кутикулой, архитектура и стойкие покрытия', 1, 1),
+          ('pedicure', 'Педикюр', 'SMART-обработка стоп, эстетика и спа-ритуалы расслабления', 2, 1),
+          ('brows_lashes', 'Брови и ресницы', 'Естественная геометрия взгляда, бережное ламинирование и уход', 3, 1),
+          ('facial_care', 'Уход за лицом', 'Эстетическая косметология, лимфодренажные массажи и гидробаланс', 4, 1),
+          ('hair_styling', 'Укладки и причёски', 'Воздушные дневные укладки, вечерние текстуры и молекулярный уход', 5, 1)`
+      )
+      .run();
+  } catch {
+    // Игнорируем
+  }
 
-  await db
-    .prepare(
-      `INSERT OR IGNORE INTO services (id, category_id, title, description, duration_minutes, price_rub, is_active, is_demo, sort_order) VALUES
-        ('srv_mani_naked', 'manicure', 'Японский эко-маникюр P.Shine (без покрытия)', 'Деликатная обработка кутикулы и втирание минеральной пасты с жемчужной пудрой.', 60, 2600, 1, 1, 10),
-        ('srv_mani_gel', 'manicure', 'Комплексный маникюр с выравниванием и покрытием гель-лак', 'Снятие старого покрытия, комбинированная обработка, архитектура и покрытие.', 90, 3400, 1, 1, 20),
-        ('srv_mani_french', 'manicure', 'Архитектурный маникюр French / Микрофренч', 'Тонкая графичная линия улыбки на камуфлирующей молочной или нюдовой основе.', 105, 3900, 1, 1, 30),
-        ('srv_pedi_smart', 'pedicure', 'Эстетический SMART-педикюр с покрытием', 'Атравматичная полировка стоп молекулярным маслом и стойкое покрытие.', 90, 4200, 1, 1, 40),
-        ('srv_pedi_spa', 'pedicure', 'SPA-педикюр «Шёлковое прикосновение» без покрытия', 'Гигиенический уход в кресле-реклайнере, энзимный пилинг и массаж стоп.', 75, 3800, 1, 1, 50),
-        ('srv_brow_arch', 'brows_lashes', 'Архитектура и деликатное окрашивание бровей', 'Построение естественной формы по анатомии лица и мягкое тонирование.', 45, 2200, 1, 1, 60),
-        ('srv_brow_lami', 'brows_lashes', 'Ламинирование бровей с протеиновым уходом', 'Долговременная укладка волосков с глубоким питанием.', 60, 3100, 1, 1, 70),
-        ('srv_lash_lami', 'brows_lashes', 'Ламинирование и ботокс ресниц Velvet Lift', 'Изящный изгиб от корней и уплотнение структуры натуральных ресниц.', 60, 3500, 1, 1, 80),
-        ('srv_face_sculpt', 'facial_care', 'Скульптурно-буккальный массаж лица и зоны декольте', 'Глубокая миофасциальная проработка мышц лица для снятия зажимов.', 60, 4800, 1, 1, 90),
-        ('srv_face_glow', 'facial_care', 'Детокс-ритуал «Фарфовое сияние» (Hydro-Glow)', 'Мягкое ультразвуковое очищение и альгинатная маска с дамасской розой.', 90, 6200, 1, 1, 100),
-        ('srv_hair_blowout', 'hair_styling', 'Дневная воздушная укладка на брашинг или стайлер', 'Мытьё головы с массажем и создание подвижной объёмной текстуры.', 60, 3200, 1, 1, 110),
-        ('srv_hair_evening', 'hair_styling', 'Вечерняя причёска или собранный пучок с уходом', 'Индивидуальный подбор силуэта и стойкая невесомая фиксация.', 90, 5400, 1, 1, 120)`
-    )
-    .run();
+  const srvCountRow = await db
+    .prepare(`SELECT COUNT(*) AS cnt FROM services WHERE is_active = 1`)
+    .first()
+    .catch(() => ({ cnt: 0 }));
 
-  await db
-    .prepare(
-      `INSERT OR IGNORE INTO masters (id, name, role, specialization, bio, experience_years, portrait_key, is_active, is_demo, sort_order) VALUES
-        ('mst_anna', 'Анна Сокова', 'Ведущий мастер ногтевого сервиса', 'Маникюр и SMART-педикюр', 'Специализируется на тонких ультра-натуральных покрытиях и японском эко-маникюре.', 7, 'anna', 1, 1, 1),
-        ('mst_maria', 'Мария Лебедева', 'Топ-стилист взгляда', 'Архитектура бровей и ламинирование ресниц', 'Создаёт гармоничную, мягкую форму бровей без эффекта перегруженности.', 5, 'maria', 1, 1, 2),
-        ('mst_elena', 'Елена Вернер', 'Косметолог-эстетист', 'Мануальные техники массажа и уход за кожей', 'Владеет европейскими методиками скульптурно-буккального моделирования.', 9, 'elena', 1, 1, 3),
-        ('mst_sofia', 'София Корсакова', 'Стилист по волосам и nail-эстетист', 'Укладки, вечерние текстуры и маникюр', 'Мастер воздушных укладок, естественных локонов и экспресс-ритуалов.', 6, 'sofia', 1, 1, 4)`
-    )
-    .run();
+  if (!srvCountRow || Number(srvCountRow.cnt) === 0) {
+    const defaultServices = [
+      ['srv_mani_naked', 'manicure', 'Маникюр', 'Японский эко-маникюр P.Shine (без покрытия)', 'Деликатная обработка кутикулы и втирание минеральной пасты с жемчужной пудрой.', 60, 2600, 1, 1, 10],
+      ['srv_mani_gel', 'manicure', 'Маникюр', 'Комплексный маникюр с выравниванием и покрытием гель-лак', 'Снятие старого покрытия, комбинированная обработка, архитектура и покрытие.', 90, 3400, 1, 1, 20],
+      ['srv_mani_french', 'manicure', 'Маникюр', 'Архитектурный маникюр French / Микрофренч', 'Тонкая графичная линия улыбки на камуфлирующей молочной или нюдовой основе.', 105, 3900, 1, 1, 30],
+      ['srv_pedi_smart', 'pedicure', 'Педикюр', 'Эстетический SMART-педикюр с покрытием', 'Атравматичная полировка стоп молекулярным маслом и стойкое покрытие.', 90, 4200, 1, 1, 40],
+      ['srv_pedi_spa', 'pedicure', 'Педикюр', 'SPA-педикюр «Шёлковое прикосновение» без покрытия', 'Гигиенический уход в кресле-реклайнере, энзимный пилинг и массаж стоп.', 75, 3800, 1, 1, 50],
+      ['srv_brow_arch', 'brows_lashes', 'Брови и ресницы', 'Архитектура и деликатное окрашивание бровей', 'Построение естественной формы по анатомии лица и мягкое тонирование.', 45, 2200, 1, 1, 60],
+      ['srv_brow_lami', 'brows_lashes', 'Брови и ресницы', 'Ламинирование бровей с протеиновым уходом', 'Долговременная укладка волосков с глубоким питанием.', 60, 3100, 1, 1, 70],
+      ['srv_lash_lami', 'brows_lashes', 'Брови и ресницы', 'Ламинирование и ботокс ресниц Velvet Lift', 'Изящный изгиб от корней и уплотнение структуры натуральных ресниц.', 60, 3500, 1, 1, 80],
+      ['srv_face_sculpt', 'facial_care', 'Уход за лицом', 'Скульптурно-буккальный массаж лица и зоны декольте', 'Глубокая миофасциальная проработка мышц лица для снятия зажимов.', 60, 4800, 1, 1, 90],
+      ['srv_face_glow', 'facial_care', 'Уход за лицом', 'Детокс-ритуал «Фарфоровое сияние» (Hydro-Glow)', 'Мягкое ультразвуковое очищение и альгинатная маска с дамасской розой.', 90, 6200, 1, 1, 100],
+      ['srv_hair_blowout', 'hair_styling', 'Укладки и причёски', 'Дневная воздушная укладка на брашинг или стайлер', 'Мытьё головы с массажем и создание подвижной объёмной текстуры.', 60, 3200, 1, 1, 110],
+      ['srv_hair_evening', 'hair_styling', 'Укладки и причёски', 'Вечерняя причёска или собранный пучок с уходом', 'Индивидуальный подбор силуэта и стойкая невесомая фиксация.', 90, 5400, 1, 1, 120],
+    ];
 
-  await db
-    .prepare(
-      `INSERT OR IGNORE INTO master_services (master_id, service_id) VALUES
-        ('mst_anna', 'srv_mani_naked'), ('mst_anna', 'srv_mani_gel'), ('mst_anna', 'srv_mani_french'),
-        ('mst_anna', 'srv_pedi_smart'), ('mst_anna', 'srv_pedi_spa'),
-        ('mst_maria', 'srv_brow_arch'), ('mst_maria', 'srv_brow_lami'), ('mst_maria', 'srv_lash_lami'),
-        ('mst_elena', 'srv_face_sculpt'), ('mst_elena', 'srv_face_glow'), ('mst_elena', 'srv_lash_lami'),
-        ('mst_sofia', 'srv_hair_blowout'), ('mst_sofia', 'srv_hair_evening'),
-        ('mst_sofia', 'srv_mani_naked'), ('mst_sofia', 'srv_mani_gel')`
-    )
-    .run();
+    for (const s of defaultServices) {
+      const [id, catId, catLabel, title, desc, dur, price, active, demo, sort] = s;
+      try {
+        if (hasLegacyServiceCategoryCols) {
+          await db
+            .prepare(
+              `INSERT OR IGNORE INTO services (id, category, category_label, category_id, title, description, duration_minutes, price_rub, is_active, is_demo, sort_order)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+            )
+            .bind(id, catId, catLabel, catId, title, desc, dur, price, active, demo, sort)
+            .run();
+        } else {
+          await db
+            .prepare(
+              `INSERT OR IGNORE INTO services (id, category_id, title, description, duration_minutes, price_rub, is_active, is_demo, sort_order)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+            )
+            .bind(id, catId, title, desc, dur, price, active, demo, sort)
+            .run();
+        }
+      } catch {
+        // Продолжаем при конфликте отдельной строки
+      }
+    }
+  }
+
+  const mstCountRow = await db
+    .prepare(`SELECT COUNT(*) AS cnt FROM masters WHERE is_active = 1`)
+    .first()
+    .catch(() => ({ cnt: 0 }));
+
+  if (!mstCountRow || Number(mstCountRow.cnt) === 0) {
+    try {
+      await db
+        .prepare(
+          `INSERT OR IGNORE INTO masters (id, name, role, specialization, bio, experience_years, portrait_key, is_active, is_demo, sort_order) VALUES
+            ('mst_anna', 'Анна Сокова', 'Ведущий мастер ногтевого сервиса', 'Маникюр и SMART-педикюр', 'Специализируется на тонких ультра-натуральных покрытиях и японском эко-маникюре.', 7, 'anna', 1, 1, 1),
+            ('mst_maria', 'Мария Лебедева', 'Топ-стилист взгляда', 'Архитектура бровей и ламинирование ресниц', 'Создаёт гармоничную, мягкую форму бровей без эффекта перегруженности.', 5, 'maria', 1, 1, 2),
+            ('mst_elena', 'Елена Вернер', 'Косметолог-эстетист', 'Мануальные техники массажа и уход за кожей', 'Владеет европейскими методиками скульптурно-буккального моделирования.', 9, 'elena', 1, 1, 3),
+            ('mst_sofia', 'София Корсакова', 'Стилист по волосам и nail-эстетист', 'Укладки, вечерние текстуры и маникюр', 'Мастер воздушных укладок, естественных локонов и экспресс-ритуалов.', 6, 'sofia', 1, 1, 4)`
+        )
+        .run();
+    } catch {
+      // Игнорируем
+    }
+  }
+
+  try {
+    await db
+      .prepare(
+        `INSERT OR IGNORE INTO master_services (master_id, service_id)
+         SELECT m.id, s.id
+         FROM (
+           VALUES
+             ('mst_anna', 'srv_mani_naked'), ('mst_anna', 'srv_mani_gel'), ('mst_anna', 'srv_mani_french'),
+             ('mst_anna', 'srv_pedi_smart'), ('mst_anna', 'srv_pedi_spa'),
+             ('mst_maria', 'srv_brow_arch'), ('mst_maria', 'srv_brow_lami'), ('mst_maria', 'srv_lash_lami'),
+             ('mst_elena', 'srv_face_sculpt'), ('mst_elena', 'srv_face_glow'), ('mst_elena', 'srv_lash_lami'),
+             ('mst_sofia', 'srv_hair_blowout'), ('mst_sofia', 'srv_hair_evening'),
+             ('mst_sofia', 'srv_mani_naked'), ('mst_sofia', 'srv_mani_gel')
+         ) AS pairs(m_id, s_id)
+         JOIN masters m ON m.id = pairs.m_id
+         JOIN services s ON s.id = pairs.s_id`
+      )
+      .run();
+  } catch {
+    // Игнорируем
+  }
+
+  // Если в БД есть активные услуги без единого назначенного активного мастера (например, кастомные услуги из старой схемы),
+  // автоматически связываем их с активными мастерами, чтобы /api/availability всегда возвращал доступные слоты.
+  try {
+    const { results: unlinkedServices } = await db
+      .prepare(
+        `SELECT s.id, s.category_id
+         FROM services s
+         WHERE s.is_active = 1
+           AND NOT EXISTS (
+             SELECT 1 FROM master_services ms
+             JOIN masters m ON m.id = ms.master_id
+             WHERE ms.service_id = s.id AND m.is_active = 1
+           )`
+      )
+      .all();
+
+    if ((unlinkedServices || []).length > 0) {
+      const { results: activeMasters } = await db
+        .prepare(`SELECT id FROM masters WHERE is_active = 1 ORDER BY sort_order ASC`)
+        .all();
+      for (const s of unlinkedServices) {
+        for (const m of activeMasters || []) {
+          await db
+            .prepare(`INSERT OR IGNORE INTO master_services (master_id, service_id) VALUES (?, ?)`)
+            .bind(m.id, s.id)
+            .run();
+        }
+      }
+    }
+  } catch {
+    // Игнорируем
+  }
 
   const defaultSchedules = [
     ['mst_anna', 0, 1, 600, 1260, 780, 840],
@@ -1143,14 +1338,43 @@ async function seedInitialCatalogIfEmpty(db) {
     ['mst_sofia', 6, 1, 600, 1260, 810, 840],
   ];
   for (const row of defaultSchedules) {
-    await db
+    try {
+      await db
+        .prepare(
+          `INSERT OR IGNORE INTO master_schedules (
+            master_id, day_of_week, is_working, start_minute, end_minute, break_start_minute, break_end_minute
+          ) SELECT ?, ?, ?, ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM masters WHERE id = ?)`
+        )
+        .bind(...row, row[0])
+        .run();
+    } catch {
+      // Игнорируем
+    }
+  }
+
+  // Гарантируем, что у каждого активного мастера в БД есть расписание на неделю
+  try {
+    const { results: mastersWithoutSchedule } = await db
       .prepare(
-        `INSERT OR IGNORE INTO master_schedules (
-          master_id, day_of_week, is_working, start_minute, end_minute, break_start_minute, break_end_minute
-        ) VALUES (?, ?, ?, ?, ?, ?, ?)`
+        `SELECT m.id FROM masters m
+         WHERE m.is_active = 1
+           AND NOT EXISTS (SELECT 1 FROM master_schedules ms WHERE ms.master_id = m.id)`
       )
-      .bind(...row)
-      .run();
+      .all();
+    for (const m of mastersWithoutSchedule || []) {
+      for (let d = 0; d <= 6; d++) {
+        await db
+          .prepare(
+            `INSERT OR IGNORE INTO master_schedules (
+              master_id, day_of_week, is_working, start_minute, end_minute, break_start_minute, break_end_minute
+            ) VALUES (?, ?, 1, 600, 1260, 840, 870)`
+          )
+          .bind(m.id, d)
+          .run();
+      }
+    }
+  } catch {
+    // Игнорируем
   }
 }
 
@@ -1791,18 +2015,30 @@ async function handleGetCatalog(env) {
     };
   }
 
-  const masters = (mastersRes.results || []).map((m) => ({
-    id: m.id,
-    name: m.name,
-    role: m.role,
-    specialization: m.specialization,
-    bio: m.bio,
-    experienceYears: Number(m.experience_years),
-    portraitKey: m.portrait_key,
-    isDemo: Number(m.is_demo) === 1,
-    serviceIds: masterServicesMap[m.id] || [],
-    weeklySchedule: masterScheduleMap[m.id] || {},
-  }));
+  const masters = (mastersRes.results || []).map((m) => {
+    const sched = masterScheduleMap[m.id] || {};
+    const workingDays = Object.entries(sched)
+      .filter(([, val]) => val && val.isWorking)
+      .map(([dow, val]) => ({
+        dayOfWeek: Number(dow),
+        startTime: val.startTime,
+        endTime: val.endTime,
+      }));
+
+    return {
+      id: m.id,
+      name: m.name,
+      role: m.role,
+      specialization: m.specialization,
+      bio: m.bio,
+      experienceYears: Number(m.experience_years),
+      portraitKey: m.portrait_key,
+      isDemo: Number(m.is_demo) === 1,
+      serviceIds: masterServicesMap[m.id] || [],
+      weeklySchedule: sched,
+      workingDays,
+    };
+  });
 
   const services = (servicesRes.results || []).map((s) => ({
     id: s.id,
@@ -4135,29 +4371,59 @@ async function handleAdminSaveService(request, env) {
     return errorResponse('INVALID_PRICE', 'Стоимость услуги должна быть больше 0 ₽.', 400);
   }
 
-  await db
-    .prepare(
-      `INSERT INTO services (id, category_id, title, description, duration_minutes, price_rub, is_active, is_demo, sort_order)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?)
-       ON CONFLICT(id) DO UPDATE SET
-         category_id = excluded.category_id,
-         title = excluded.title,
-         description = excluded.description,
-         duration_minutes = excluded.duration_minutes,
-         price_rub = excluded.price_rub,
-         is_active = excluded.is_active`
-    )
-    .bind(
-      id,
-      categoryId,
-      title,
-      description || 'Индивидуальный ритуал ухода в студии LÉA.',
-      durationMinutes,
-      priceRub,
-      isActive,
-      sortOrder
-    )
-    .run();
+  const compat = await ensureDatabaseReady(db);
+  if (compat && compat.hasLegacyServiceCategoryCols) {
+    await db
+      .prepare(
+        `INSERT INTO services (id, category, category_label, category_id, title, description, duration_minutes, price_rub, is_active, is_demo, sort_order)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)
+         ON CONFLICT(id) DO UPDATE SET
+           category = excluded.category,
+           category_id = excluded.category_id,
+           title = excluded.title,
+           description = excluded.description,
+           duration_minutes = excluded.duration_minutes,
+           price_rub = excluded.price_rub,
+           is_active = excluded.is_active`
+      )
+      .bind(
+        id,
+        categoryId,
+        categoryId,
+        categoryId,
+        title,
+        description || 'Индивидуальный ритуал ухода в студии LÉA.',
+        durationMinutes,
+        priceRub,
+        isActive,
+        sortOrder
+      )
+      .run();
+  } else {
+    await db
+      .prepare(
+        `INSERT INTO services (id, category_id, title, description, duration_minutes, price_rub, is_active, is_demo, sort_order)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?)
+         ON CONFLICT(id) DO UPDATE SET
+           category_id = excluded.category_id,
+           title = excluded.title,
+           description = excluded.description,
+           duration_minutes = excluded.duration_minutes,
+           price_rub = excluded.price_rub,
+           is_active = excluded.is_active`
+      )
+      .bind(
+        id,
+        categoryId,
+        title,
+        description || 'Индивидуальный ритуал ухода в студии LÉA.',
+        durationMinutes,
+        priceRub,
+        isActive,
+        sortOrder
+      )
+      .run();
+  }
 
   if (Array.isArray(body.masterIds) && body.masterIds.length > 0) {
     for (const mId of body.masterIds) {
@@ -4374,7 +4640,9 @@ export default {
     }
 
     const url = new URL(request.url);
-    const path = url.pathname.replace(/\/+$/, '') || '/';
+    const rawPath = url.pathname.replace(/\/+$/, '') || '/';
+    const apiIdx = rawPath.indexOf('/api/');
+    const path = apiIdx > 0 ? rawPath.slice(apiIdx) : rawPath;
 
     try {
       if (path === '/api/health' && request.method === 'GET') {

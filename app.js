@@ -44,8 +44,9 @@ const state = {
   services: [],
   masters: [],
 
-  // Фильтр витрины услуг
+  // Фильтр витрины услуг и раскрытые карточки
   catalogCategoryFilter: 'all',
+  expandedServiceIds: new Set(),
 
   // Состояние пошаговой формы онлайн-записи
   wizardCategoryFilter: 'all',
@@ -67,10 +68,20 @@ const state = {
   confirmedBooking: null,
 };
 
+function readStoredSessionItem(key) {
+  try {
+    return sessionStorage.getItem(key) || '';
+  } catch {
+    return '';
+  }
+}
+
 const adminState = {
   authenticated: false,
-  csrfToken: '',
-  login: '',
+  sessionToken: readStoredSessionItem('lea_admin_token'),
+  csrfToken: readStoredSessionItem('lea_admin_csrf'),
+  login: readStoredSessionItem('lea_admin_login') || 'admin',
+  activeTab: 'bookings',
   serverToday: '',
   bookings: [],
   masters: [],
@@ -81,6 +92,45 @@ const adminState = {
   filterSearch: '',
   pollTimerId: null,
 };
+
+function persistAdminSession({ sessionToken, csrfToken, login }) {
+  if (sessionToken !== undefined) {
+    adminState.sessionToken = sessionToken || '';
+  }
+  if (csrfToken !== undefined) {
+    adminState.csrfToken = csrfToken || '';
+  }
+  if (login !== undefined && login) {
+    adminState.login = login;
+  }
+  try {
+    if (adminState.sessionToken) {
+      sessionStorage.setItem('lea_admin_token', adminState.sessionToken);
+    }
+    if (adminState.csrfToken) {
+      sessionStorage.setItem('lea_admin_csrf', adminState.csrfToken);
+    }
+    if (adminState.login) {
+      sessionStorage.setItem('lea_admin_login', adminState.login);
+    }
+  } catch {
+    // Ignore storage quota errors
+  }
+}
+
+function clearPersistedAdminSession() {
+  adminState.authenticated = false;
+  adminState.sessionToken = '';
+  adminState.csrfToken = '';
+  try {
+    sessionStorage.removeItem('lea_admin_token');
+    sessionStorage.removeItem('lea_admin_csrf');
+    sessionStorage.removeItem('lea_admin_login');
+    sessionStorage.removeItem('lea_admin_panel_open');
+  } catch {
+    // Ignore
+  }
+}
 
 function getOrCreateHoldToken() {
   try {
@@ -159,26 +209,66 @@ function renderMasterPortraitSvg(portraitKey) {
 
 async function apiRequest(path, options = {}) {
   const url = `${API_BASE_URL}${path}`;
+  const method = (options.method || 'GET').toUpperCase();
   const headers = {
+    Accept: 'application/json',
     'Content-Type': 'application/json',
     ...(options.headers || {}),
   };
 
-  if (adminState.csrfToken && options.method && options.method !== 'GET') {
+  if (adminState.sessionToken && !headers['Authorization']) {
+    headers['Authorization'] = `Bearer ${adminState.sessionToken}`;
+  }
+
+  if (adminState.csrfToken && method !== 'GET' && method !== 'HEAD') {
     headers['X-CSRF-Token'] = adminState.csrfToken;
   }
 
-  const response = await fetch(url, {
-    credentials: 'include',
-    ...options,
-    headers,
-  });
+  let response;
+  try {
+    response = await fetch(url, {
+      credentials: 'include',
+      ...options,
+      method,
+      headers,
+    });
+  } catch (netErr) {
+    const err = new Error(
+      'Не удалось соединиться с сервером расписания. Проверьте подключение к сети.'
+    );
+    err.code = 'NETWORK_ERROR';
+    err.status = 0;
+    err.cause = netErr;
+    throw err;
+  }
+
+  let rawText = '';
+  try {
+    rawText = await response.text();
+  } catch {
+    rawText = '';
+  }
 
   let data = null;
-  try {
-    data = await response.json();
-  } catch {
-    throw new Error('Сервер вернул некорректный ответ.');
+  if (rawText) {
+    try {
+      data = JSON.parse(rawText);
+    } catch {
+      const isHtml =
+        rawText.trim().startsWith('<') ||
+        (response.headers.get('content-type') || '').includes('text/html');
+      console.error(
+        `[LÉA API Diagnostics] Маршрут ${method} ${url} вернул не-JSON (HTTP ${response.status})`
+      );
+      const msg =
+        response.status === 404 && isHtml
+          ? 'API-маршрут не найден на текущем хостинге (HTTP 404). Убедитесь, что сайт опубликован через Cloudflare Worker l-a-studio.'
+          : `Сервер вернул некорректный ответ (HTTP ${response.status}).`;
+      const parseErr = new Error(msg);
+      parseErr.code = 'INVALID_SERVER_RESPONSE';
+      parseErr.status = response.status;
+      throw parseErr;
+    }
   }
 
   if (!response.ok || !data || data.ok === false) {
@@ -335,25 +425,56 @@ function renderServicesCatalog() {
     return;
   }
 
+  const masterById = {};
+  for (const m of state.masters) {
+    masterById[m.id] = m;
+  }
+
   grid.innerHTML = filtered
     .map((srv) => {
       const catTitle = categoryMap[srv.categoryId] || 'Ритуал ухода';
+      const isExpanded = state.expandedServiceIds.has(srv.id);
+      const serviceMasters = state.masters
+        .filter((m) => (m.serviceIds || []).includes(srv.id))
+        .map((m) => m.name);
+
       return `
-        <article class="service-card">
+        <article
+          class="service-card ${isExpanded ? 'is-expanded' : 'is-compact'}"
+          data-service-card="${escapeHtml(srv.id)}"
+        >
           <div class="service-card-top">
             <div class="service-meta-line">
-              <span>${escapeHtml(catTitle)}</span>
+              <span class="service-cat-tag">${escapeHtml(catTitle)}</span>
               <span aria-hidden="true">·</span>
               <span class="tabular-nums">${srv.durationMinutes} мин.</span>
             </div>
             <h3 class="service-card-title">${escapeHtml(srv.title)}</h3>
             <p class="service-card-desc">${escapeHtml(srv.description)}</p>
+            <div class="service-card-details" ${isExpanded ? '' : 'hidden'}>
+              <p class="service-card-full-desc">${escapeHtml(srv.description)}</p>
+              ${
+                serviceMasters.length > 0
+                  ? `<p class="service-card-masters"><strong>Мастера:</strong> ${escapeHtml(serviceMasters.join(', '))}</p>`
+                  : ''
+              }
+            </div>
           </div>
           <div class="service-card-footer">
-            <span class="service-price tabular-nums">${formatPriceRub(srv.priceRub)}</span>
+            <div class="service-price-wrap">
+              <span class="service-price tabular-nums">${formatPriceRub(srv.priceRub)}</span>
+              <button
+                type="button"
+                class="service-expand-btn"
+                data-toggle-service-card="${escapeHtml(srv.id)}"
+                aria-expanded="${isExpanded}"
+              >
+                ${isExpanded ? 'Свернуть ↑' : 'Подробнее ↓'}
+              </button>
+            </div>
             <button
               type="button"
-              class="btn btn-secondary btn-sm"
+              class="btn btn-secondary btn-sm service-book-btn"
               data-book-service="${escapeHtml(srv.id)}"
             >
               Записаться
@@ -364,12 +485,29 @@ function renderServicesCatalog() {
     })
     .join('');
 
+  grid.querySelectorAll('[data-toggle-service-card]').forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const serviceId = btn.getAttribute('data-toggle-service-card');
+      if (!serviceId) return;
+      if (state.expandedServiceIds.has(serviceId)) {
+        state.expandedServiceIds.delete(serviceId);
+      } else {
+        state.expandedServiceIds.add(serviceId);
+      }
+      renderServicesCatalog();
+    });
+  });
+
   grid.querySelectorAll('[data-book-service]').forEach((btn) => {
-    btn.addEventListener('click', () => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
       const serviceId = btn.getAttribute('data-book-service');
       startBookingWithService(serviceId);
     });
   });
+
+  observeScrollRevealElements(grid);
 }
 
 function renderMastersCatalog() {
@@ -734,6 +872,20 @@ function selectMasterInWizard(masterId, advance = true) {
   }
 }
 
+function isMasterWorkingOnWeekday(mst, dayOfWeek) {
+  if (!mst) return true;
+  if (mst.weeklySchedule && typeof mst.weeklySchedule === 'object') {
+    const dayEntry = mst.weeklySchedule[dayOfWeek] ?? mst.weeklySchedule[String(dayOfWeek)];
+    if (dayEntry !== undefined) {
+      return Boolean(dayEntry.isWorking);
+    }
+  }
+  if (Array.isArray(mst.workingDays) && mst.workingDays.length > 0) {
+    return mst.workingDays.some((wd) => Number(wd.dayOfWeek) === Number(dayOfWeek));
+  }
+  return true;
+}
+
 function isWeekdayWorkingForSelection(dayOfWeek) {
   if (!state.selectedMasterId) return true;
 
@@ -741,14 +893,12 @@ function isWeekdayWorkingForSelection(dayOfWeek) {
     const eligible = state.masters.filter((m) =>
       (m.serviceIds || []).includes(state.selectedServiceId)
     );
-    return eligible.some((m) =>
-      (m.workingDays || []).some((wd) => Number(wd.dayOfWeek) === dayOfWeek)
-    );
+    if (eligible.length === 0) return true;
+    return eligible.some((m) => isMasterWorkingOnWeekday(m, dayOfWeek));
   }
 
   const mst = state.masters.find((m) => m.id === state.selectedMasterId);
-  if (!mst || !mst.workingDays) return true;
-  return mst.workingDays.some((wd) => Number(wd.dayOfWeek) === dayOfWeek);
+  return isMasterWorkingOnWeekday(mst, dayOfWeek);
 }
 
 function renderWizardStep3Calendar() {
@@ -1329,8 +1479,10 @@ async function handleFooterAdminButtonClick() {
     const sess = await apiRequest('/api/admin/session', { method: 'GET' });
     if (sess && sess.authenticated) {
       adminState.authenticated = true;
-      adminState.csrfToken = sess.csrfToken || adminState.csrfToken;
-      adminState.login = sess.login || 'admin';
+      persistAdminSession({
+        csrfToken: sess.csrfToken || adminState.csrfToken,
+        login: sess.login || adminState.login || 'admin',
+      });
       openInlineAdminWorkspace();
       return;
     }
@@ -1344,7 +1496,10 @@ async function handleFooterAdminButtonClick() {
   const passInput = document.getElementById('main-admin-password-input');
 
   if (errEl) errEl.hidden = true;
-  if (passInput) passInput.value = '';
+  if (passInput) {
+    passInput.value = '';
+    passInput.type = 'password';
+  }
   if (loginModal) {
     loginModal.hidden = false;
     setTimeout(() => {
@@ -1386,8 +1541,11 @@ async function handleMainAdminLoginSubmit(event) {
     });
 
     adminState.authenticated = true;
-    adminState.csrfToken = res.csrfToken || '';
-    adminState.login = res.login || login;
+    persistAdminSession({
+      sessionToken: res.sessionToken || '',
+      csrfToken: res.csrfToken || '',
+      login: res.login || login,
+    });
 
     if (passInput) passInput.value = '';
     const loginModal = document.getElementById('admin-login-modal');
@@ -1409,12 +1567,51 @@ async function handleMainAdminLoginSubmit(event) {
   }
 }
 
+function updateInlineAdminLoginLabels() {
+  const activeLogin = adminState.login || 'admin';
+  const badgeEl = document.getElementById('inline-admin-active-login');
+  const currentLoginInput = document.getElementById('inline-account-current-login');
+  if (badgeEl) badgeEl.textContent = activeLogin;
+  if (currentLoginInput && !currentLoginInput.value) {
+    currentLoginInput.value = activeLogin;
+  }
+}
+
+function switchInlineAdminTab(tabName) {
+  const targetTab = tabName === 'account' ? 'account' : 'bookings';
+  adminState.activeTab = targetTab;
+
+  document.querySelectorAll('[data-inline-admin-tab]').forEach((btn) => {
+    const isMatch = btn.getAttribute('data-inline-admin-tab') === targetTab;
+    btn.classList.toggle('is-active', isMatch);
+    btn.setAttribute('aria-selected', String(isMatch));
+  });
+
+  const bookingsPane = document.getElementById('inline-admin-tab-bookings');
+  const accountPane = document.getElementById('inline-admin-tab-account');
+  if (bookingsPane) bookingsPane.hidden = targetTab !== 'bookings';
+  if (accountPane) accountPane.hidden = targetTab !== 'account';
+
+  if (targetTab === 'account') {
+    const currentLoginInput = document.getElementById('inline-account-current-login');
+    if (currentLoginInput) {
+      currentLoginInput.value = adminState.login || 'admin';
+    }
+  }
+}
+
 function openInlineAdminWorkspace() {
   const publicWrapper = document.getElementById('public-site-wrapper');
   const adminPanel = document.getElementById('inline-admin-panel');
 
   if (publicWrapper) publicWrapper.hidden = true;
   if (adminPanel) adminPanel.hidden = false;
+  try {
+    sessionStorage.setItem('lea_admin_panel_open', '1');
+  } catch {
+    // Ignore
+  }
+  updateInlineAdminLoginLabels();
   window.scrollTo({ top: 0, behavior: 'smooth' });
 
   loadInlineAdminData();
@@ -1435,6 +1632,11 @@ function closeInlineAdminWorkspace() {
     clearInterval(adminState.pollTimerId);
     adminState.pollTimerId = null;
   }
+  try {
+    sessionStorage.removeItem('lea_admin_panel_open');
+  } catch {
+    // Ignore
+  }
 
   const publicWrapper = document.getElementById('public-site-wrapper');
   const adminPanel = document.getElementById('inline-admin-panel');
@@ -1449,8 +1651,7 @@ async function handleInlineAdminLogout() {
   } catch {
     // Игнорируем сетевую ошибку при выходе
   }
-  adminState.authenticated = false;
-  adminState.csrfToken = '';
+  clearPersistedAdminSession();
   closeInlineAdminWorkspace();
 }
 
@@ -1464,6 +1665,15 @@ async function loadInlineAdminData(silent = false) {
 
   try {
     const data = await apiRequest('/api/admin/overview', { method: 'GET' });
+    adminState.authenticated = true;
+    if (data.csrfToken || data.admin?.login) {
+      persistAdminSession({
+        csrfToken: data.csrfToken || adminState.csrfToken,
+        login: data.admin?.login || adminState.login,
+      });
+    }
+    updateInlineAdminLoginLabels();
+
     adminState.serverToday = data.serverToday || '2026-10-29';
     adminState.bookings = data.bookings || [];
     adminState.masters = data.masters || state.masters || [];
@@ -1483,9 +1693,11 @@ async function loadInlineAdminData(silent = false) {
     renderInlineAdminBookings();
   } catch (err) {
     if (err.status === 401) {
-      adminState.authenticated = false;
+      clearPersistedAdminSession();
       closeInlineAdminWorkspace();
-      handleFooterAdminButtonClick();
+      if (!silent) {
+        handleFooterAdminButtonClick();
+      }
       return;
     }
     if (!silent) {
@@ -1882,6 +2094,236 @@ async function handleInlineRescheduleSubmit(event) {
   }
 }
 
+async function handleInlineChangeLoginSubmit(event) {
+  event.preventDefault();
+  const currentPasswordEl = document.getElementById('inline-account-current-pass-for-login');
+  const newLoginEl = document.getElementById('inline-account-new-login');
+  const submitBtn = document.getElementById('inline-change-login-submit');
+  const feedbackEl = document.getElementById('inline-change-login-feedback');
+
+  const currentPassword = currentPasswordEl?.value || '';
+  const newLogin = (newLoginEl?.value || '').trim();
+
+  if (feedbackEl) feedbackEl.hidden = true;
+
+  if (!currentPassword) {
+    if (feedbackEl) {
+      feedbackEl.className = 'form-alert is-error';
+      feedbackEl.textContent = 'Введите текущий пароль для подтверждения.';
+      feedbackEl.hidden = false;
+    }
+    return;
+  }
+
+  if (newLogin.length < 3) {
+    if (feedbackEl) {
+      feedbackEl.className = 'form-alert is-error';
+      feedbackEl.textContent = 'Новый логин должен содержать минимум 3 символа.';
+      feedbackEl.hidden = false;
+    }
+    return;
+  }
+
+  if (submitBtn) submitBtn.disabled = true;
+
+  try {
+    const res = await apiRequest('/api/admin/account/login', {
+      method: 'POST',
+      body: JSON.stringify({ currentPassword, newLogin }),
+    });
+
+    persistAdminSession({
+      sessionToken: res.sessionToken || adminState.sessionToken,
+      csrfToken: res.csrfToken || adminState.csrfToken,
+      login: res.login || newLogin,
+    });
+    updateInlineAdminAccountBadge();
+
+    if (currentPasswordEl) currentPasswordEl.value = '';
+    if (newLoginEl) newLoginEl.value = '';
+
+    if (feedbackEl) {
+      feedbackEl.className = 'form-alert is-success';
+      feedbackEl.textContent = res.message || `Логин успешно изменён на «${res.login || newLogin}».`;
+      feedbackEl.hidden = false;
+    }
+  } catch (err) {
+    if (feedbackEl) {
+      feedbackEl.className = 'form-alert is-error';
+      feedbackEl.textContent = err.message || 'Не удалось изменить логин.';
+      feedbackEl.hidden = false;
+    }
+  } finally {
+    if (submitBtn) submitBtn.disabled = false;
+  }
+}
+
+async function handleInlineChangePasswordSubmit(event) {
+  event.preventDefault();
+  const currentPasswordEl = document.getElementById('inline-account-current-password');
+  const newPasswordEl = document.getElementById('inline-account-new-password');
+  const confirmPasswordEl = document.getElementById('inline-account-confirm-password');
+  const submitBtn = document.getElementById('inline-change-password-submit');
+  const feedbackEl = document.getElementById('inline-change-password-feedback');
+
+  const currentPassword = currentPasswordEl?.value || '';
+  const newPassword = newPasswordEl?.value || '';
+  const confirmPassword = confirmPasswordEl?.value || '';
+
+  if (feedbackEl) feedbackEl.hidden = true;
+
+  if (!currentPassword) {
+    if (feedbackEl) {
+      feedbackEl.className = 'form-alert is-error';
+      feedbackEl.textContent = 'Введите текущий пароль.';
+      feedbackEl.hidden = false;
+    }
+    return;
+  }
+
+  if (newPassword.length < 8) {
+    if (feedbackEl) {
+      feedbackEl.className = 'form-alert is-error';
+      feedbackEl.textContent = 'Новый пароль должен содержать не менее 8 символов.';
+      feedbackEl.hidden = false;
+    }
+    return;
+  }
+
+  if (newPassword !== confirmPassword) {
+    if (feedbackEl) {
+      feedbackEl.className = 'form-alert is-error';
+      feedbackEl.textContent = 'Новый пароль и подтверждение пароля не совпадают.';
+      feedbackEl.hidden = false;
+    }
+    return;
+  }
+
+  if (submitBtn) submitBtn.disabled = true;
+
+  try {
+    const res = await apiRequest('/api/admin/account/password', {
+      method: 'POST',
+      body: JSON.stringify({ currentPassword, newPassword, confirmPassword }),
+    });
+
+    persistAdminSession({
+      sessionToken: res.sessionToken || adminState.sessionToken,
+      csrfToken: res.csrfToken || adminState.csrfToken,
+      login: res.login || adminState.login,
+    });
+    updateInlineAdminAccountBadge();
+
+    if (currentPasswordEl) currentPasswordEl.value = '';
+    if (newPasswordEl) newPasswordEl.value = '';
+    if (confirmPasswordEl) confirmPasswordEl.value = '';
+
+    if (feedbackEl) {
+      feedbackEl.className = 'form-alert is-success';
+      feedbackEl.textContent = res.message || 'Пароль администратора успешно обновлён.';
+      feedbackEl.hidden = false;
+    }
+  } catch (err) {
+    if (feedbackEl) {
+      feedbackEl.className = 'form-alert is-error';
+      feedbackEl.textContent = err.message || 'Не удалось обновить пароль.';
+      feedbackEl.hidden = false;
+    }
+  } finally {
+    if (submitBtn) submitBtn.disabled = false;
+  }
+}
+
+function initPasswordVisibilityToggles() {
+  document.querySelectorAll('[data-toggle-password]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const targetId = btn.getAttribute('data-toggle-password');
+      const input = targetId ? document.getElementById(targetId) : null;
+      if (!input) return;
+      const isPassword = input.type === 'password';
+      input.type = isPassword ? 'text' : 'password';
+      btn.setAttribute('aria-pressed', String(isPassword));
+      btn.setAttribute('aria-label', isPassword ? 'Скрыть пароль' : 'Показать пароль');
+      btn.classList.toggle('is-visible', isPassword);
+    });
+  });
+}
+
+let revealObserver = null;
+
+function observeScrollRevealElements(rootEl = document) {
+  const targets = rootEl.querySelectorAll(
+    '.section-header, .principle-card, .gallery-card, .service-card, .master-card, .contacts-info-card, .contacts-visual-card, .booking-steps-column, .booking-summary-card'
+  );
+  if (!targets.length) return;
+
+  const prefersReducedMotion =
+    window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  if (prefersReducedMotion || typeof IntersectionObserver === 'undefined') {
+    targets.forEach((el) => {
+      el.classList.add('reveal-item', 'is-revealed');
+    });
+    return;
+  }
+
+  if (!revealObserver) {
+    revealObserver = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            entry.target.classList.add('is-revealed');
+            revealObserver.unobserve(entry.target);
+          }
+        });
+      },
+      {
+        root: null,
+        rootMargin: '0px 0px -6% 0px',
+        threshold: 0.08,
+      }
+    );
+  }
+
+  targets.forEach((el, idx) => {
+    if (!el.classList.contains('reveal-item')) {
+      el.classList.add('reveal-item');
+      const staggerIndex = idx % 4;
+      el.style.setProperty('--reveal-delay', `${staggerIndex * 55}ms`);
+    }
+    const rect = el.getBoundingClientRect();
+    if (rect.top < window.innerHeight * 0.96) {
+      el.classList.add('is-revealed');
+    } else if (!el.classList.contains('is-revealed')) {
+      revealObserver.observe(el);
+    }
+  });
+}
+
+function initScrollRevealAnimations() {
+  document.documentElement.classList.add('js-reveal-ready');
+  observeScrollRevealElements(document);
+}
+
+async function checkExistingAdminSessionOnBoot() {
+  if (!adminState.sessionToken && !adminState.csrfToken) return;
+  try {
+    const res = await apiRequest('/api/admin/session', { method: 'GET' });
+    if (res && res.authenticated) {
+      persistAdminSession({
+        sessionToken: res.sessionToken || adminState.sessionToken,
+        csrfToken: res.csrfToken || adminState.csrfToken,
+        login: res.login || adminState.login || 'admin',
+      });
+      updateInlineAdminAccountBadge();
+    } else {
+      clearAdminSession();
+    }
+  } catch {
+    clearAdminSession();
+  }
+}
+
 // ============================================================================
 // ИНИЦИАЛИЗАЦИЯ СОБЫТИЙ ИНТЕРФЕЙСА
 // ============================================================================
@@ -2028,6 +2470,24 @@ function initUiListeners() {
     refreshAdminBtn.addEventListener('click', () => loadInlineAdminData(false));
   }
 
+  // Переключение вкладок встроенной панели администратора (Записи / Настройки аккаунта)
+  document.querySelectorAll('[data-inline-admin-tab]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const tabName = btn.getAttribute('data-inline-admin-tab');
+      if (tabName) switchInlineAdminTab(tabName);
+    });
+  });
+
+  const inlineChangeLoginForm = document.getElementById('inline-change-login-form');
+  if (inlineChangeLoginForm) {
+    inlineChangeLoginForm.addEventListener('submit', handleInlineChangeLoginSubmit);
+  }
+
+  const inlineChangePasswordForm = document.getElementById('inline-change-password-form');
+  if (inlineChangePasswordForm) {
+    inlineChangePasswordForm.addEventListener('submit', handleInlineChangePasswordSubmit);
+  }
+
   // Фильтры панели администратора
   const fDate = document.getElementById('inline-admin-filter-date');
   const fStatus = document.getElementById('inline-admin-filter-status');
@@ -2087,9 +2547,14 @@ function initUiListeners() {
   if (reschedForm) {
     reschedForm.addEventListener('submit', handleInlineRescheduleSubmit);
   }
+
+  initPasswordVisibilityToggles();
 }
 
 document.addEventListener('DOMContentLoaded', () => {
   initUiListeners();
+  initScrollRevealAnimations();
   loadCatalog();
+  checkExistingAdminSessionOnBoot();
 });
+
