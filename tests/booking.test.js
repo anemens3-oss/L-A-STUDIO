@@ -75,7 +75,7 @@ async function callWorker(env, method, urlPath, bodyObj = null, headers = {}) {
   const req = new Request(`https://lea-studio.local${urlPath}`, reqInit);
   const res = await worker.fetch(req, env, { waitUntil: () => {} });
   const data = await res.json();
-  return { status: res.status, data };
+  return { status: res.status, data, headers: res.headers };
 }
 
 test('1. Каталог услуг, категорий и мастеров корректно загружается с сервера', async () => {
@@ -722,3 +722,362 @@ test('14. Telegram (п. 8.7 #8 и #9) и Безопасность: Отсутс�
     );
   }
 });
+
+test('15. Авторизация /admin: вход по логину/паролю, HttpOnly/Secure/SameSite Cookie, проверка CSRF, неверный пароль, выход из аккаунта', async () => {
+  const env = createTestEnv();
+
+  // 1. Попытка вызвать административный API без авторизации -> 401
+  const unauthRes = await callWorker(env, 'GET', '/api/admin/bookings');
+  assert.equal(unauthRes.status, 401);
+
+  // 2. Неверный пароль -> 401
+  const badLogin = await callWorker(env, 'POST', '/api/admin/login', {
+    login: 'admin',
+    password: 'WrongPassword123',
+  });
+  assert.equal(badLogin.status, 401);
+  assert.equal(badLogin.data.error.code, 'INVALID_CREDENTIALS');
+
+  // 3. Успешный вход -> 200 + защищённая Cookie (HttpOnly; Secure; SameSite=Strict) + csrfToken
+  const goodLogin = await callWorker(env, 'POST', '/api/admin/login', {
+    login: 'admin',
+    password: 'LeaAdmin2026!',
+  });
+  assert.equal(goodLogin.status, 200);
+  assert.equal(goodLogin.data.authenticated, true);
+  assert.ok(goodLogin.data.csrfToken);
+
+  const setCookieHeader = goodLogin.headers.get('Set-Cookie') || '';
+  assert.ok(setCookieHeader.includes('lea_admin_session='));
+  assert.ok(setCookieHeader.includes('HttpOnly'));
+  assert.ok(setCookieHeader.includes('Secure'));
+  assert.ok(setCookieHeader.includes('SameSite=Strict'));
+
+  const cookiePair = setCookieHeader.split(';')[0];
+
+  // 4. Чтение записей по сессионной Cookie
+  const overviewRes = await callWorker(env, 'GET', '/api/admin/overview', null, {
+    Cookie: cookiePair,
+  });
+  assert.equal(overviewRes.status, 200);
+  assert.equal(overviewRes.data.ok, true);
+
+  // 5. Модифицирующий POST-запрос по Cookie БЕЗ X-CSRF-Token должен отклоняться (защита от CSRF)
+  const noCsrfRes = await callWorker(
+    env,
+    'POST',
+    '/api/admin/notifications/retry',
+    {},
+    { Cookie: cookiePair }
+  );
+  assert.equal(noCsrfRes.status, 401);
+
+  // 6. Модифицирующий POST-запрос по Cookie С корректным X-CSRF-Token проходит успешно
+  const withCsrfRes = await callWorker(
+    env,
+    'POST',
+    '/api/admin/notifications/retry',
+    {},
+    {
+      Cookie: cookiePair,
+      'X-CSRF-Token': goodLogin.data.csrfToken,
+    }
+  );
+  assert.equal(withCsrfRes.status, 200);
+
+  // 7. Выход из аккаунта (logout) отзывает сессию и очищает Cookie
+  const logoutRes = await callWorker(
+    env,
+    'POST',
+    '/api/admin/logout',
+    {},
+    {
+      Cookie: cookiePair,
+      'X-CSRF-Token': goodLogin.data.csrfToken,
+    }
+  );
+  assert.equal(logoutRes.status, 200);
+  assert.ok((logoutRes.headers.get('Set-Cookie') || '').includes('Max-Age=0'));
+
+  // 8. Повторный запрос со старой Cookie после выхода отклоняется с 401
+  const afterLogout = await callWorker(env, 'GET', '/api/admin/overview', null, {
+    Cookie: cookiePair,
+  });
+  assert.equal(afterLogout.status, 401);
+});
+
+test('16. Управление записями в /admin: перенос записи, запрет переноса на занятый слот, фильтрация и история изменений', async () => {
+  const env = createTestEnv();
+  const adminHeaders = { Authorization: 'Bearer LeaAdmin2026!' };
+
+  // Создаём две записи на 2026-11-05 к мастеру Анне:
+  // Запись 1: 10:00–11:00 (srv_mani_naked, 60 мин)
+  const b1 = await callWorker(env, 'POST', '/api/bookings', {
+    idempotencyKey: 'resched_b1',
+    serviceId: 'srv_mani_naked',
+    masterId: 'mst_anna',
+    date: '2026-11-05',
+    time: '10:00',
+    clientName: 'Екатерина',
+    clientLastName: 'Смирнова',
+    clientPhone: '+7 (999) 100-10-10',
+    consentAccepted: true,
+  });
+  assert.equal(b1.status, 201);
+  assert.equal(b1.data.booking.clientFirstName, 'Екатерина');
+  assert.equal(b1.data.booking.clientLastName, 'Смирнова');
+
+  // Запись 2: 11:30–12:30 (srv_mani_naked, 60 мин)
+  const b2 = await callWorker(env, 'POST', '/api/bookings', {
+    idempotencyKey: 'resched_b2',
+    serviceId: 'srv_mani_naked',
+    masterId: 'mst_anna',
+    date: '2026-11-05',
+    time: '11:30',
+    clientName: 'Дарья',
+    clientLastName: 'Волкова',
+    clientPhone: '+7 (999) 200-20-20',
+    consentAccepted: true,
+  });
+  assert.equal(b2.status, 201);
+
+  // Попытка перенести Запись 2 на 10:30 (пересекается с Записью 1 на 10:00–11:00) -> 409
+  const conflictResched = await callWorker(
+    env,
+    'POST',
+    `/api/admin/bookings/${b2.data.booking.id}/reschedule`,
+    {
+      date: '2026-11-05',
+      time: '10:30',
+      masterId: 'mst_anna',
+    },
+    adminHeaders
+  );
+  assert.equal(conflictResched.status, 409);
+  assert.equal(
+    conflictResched.data.error.message,
+    'Это время уже занято. Пожалуйста, выберите другое'
+  );
+
+  // Успешный перенос Записи 2 на свободное время 15:00 -> 200
+  const okResched = await callWorker(
+    env,
+    'POST',
+    `/api/admin/bookings/${b2.data.booking.id}/reschedule`,
+    {
+      date: '2026-11-05',
+      time: '15:00',
+      masterId: 'mst_anna',
+    },
+    adminHeaders
+  );
+  assert.equal(okResched.status, 200);
+  assert.equal(okResched.data.booking.startTime, '15:00');
+  assert.equal(okResched.data.booking.endTime, '16:00');
+
+  // Проверяем, что старое время 11:30 теперь снова свободно для записи!
+  const b3 = await callWorker(env, 'POST', '/api/bookings', {
+    idempotencyKey: 'resched_b3_take_freed_slot',
+    serviceId: 'srv_mani_naked',
+    masterId: 'mst_anna',
+    date: '2026-11-05',
+    time: '11:30',
+    clientName: 'Алина',
+    clientLastName: 'Морозова',
+    clientPhone: '+7 (999) 300-30-30',
+    consentAccepted: true,
+  });
+  assert.equal(b3.status, 201);
+
+  // Проверяем поиск по фамилии и фильтрацию в /api/admin/overview
+  const searchRes = await callWorker(
+    env,
+    'GET',
+    '/api/admin/overview?search=%D0%92%D0%BE%D0%BB%D0%BA%D0%BE%D0%B2%D0%B0',
+    null,
+    adminHeaders
+  );
+  assert.equal(searchRes.status, 200);
+  assert.equal(searchRes.data.bookings.length, 1);
+  assert.equal(searchRes.data.bookings[0].clientLastName, 'Волкова');
+  assert.ok(searchRes.data.bookings[0].auditLogs.length >= 2);
+});
+
+test('17. Совместимость со старой схемой D1 (lea-booking-db: services, staff, working_hours, bookings с first_name/last_name/staff_id) без потери данных', async () => {
+  // Создаём БД в памяти БЕЗ новых миграций и инициализируем её ТОЧНО по старой схеме lea-booking-db
+  const legacyDb = createInitializedD1Database({
+    dbPath: ':memory:',
+    migrationsDir: path.join(rootDir, 'non-existent-migrations-dir'),
+  });
+
+  await legacyDb
+    .prepare(
+      `CREATE TABLE services (
+        id TEXT PRIMARY KEY,
+        category TEXT NOT NULL,
+        category_label TEXT NOT NULL,
+        title TEXT NOT NULL,
+        description TEXT NOT NULL,
+        price_rub INTEGER NOT NULL,
+        duration_minutes INTEGER NOT NULL,
+        is_active INTEGER NOT NULL DEFAULT 1,
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL DEFAULT '2026-10-01T00:00:00Z'
+      )`
+    )
+    .run();
+
+  await legacyDb
+    .prepare(
+      `CREATE TABLE staff (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        role TEXT NOT NULL,
+        default_category TEXT NOT NULL,
+        is_active INTEGER NOT NULL DEFAULT 1,
+        created_at TEXT NOT NULL DEFAULT '2026-10-01T00:00:00Z'
+      )`
+    )
+    .run();
+
+  await legacyDb
+    .prepare(
+      `CREATE TABLE working_hours (
+        day_of_week INTEGER PRIMARY KEY,
+        open_time TEXT NOT NULL,
+        close_time TEXT NOT NULL,
+        break_start TEXT,
+        break_end TEXT,
+        is_closed INTEGER NOT NULL DEFAULT 0
+      )`
+    )
+    .run();
+
+  await legacyDb
+    .prepare(
+      `CREATE TABLE bookings (
+        id TEXT PRIMARY KEY,
+        idempotency_key TEXT NOT NULL UNIQUE,
+        first_name TEXT NOT NULL,
+        last_name TEXT NOT NULL,
+        phone TEXT NOT NULL,
+        service_id TEXT NOT NULL,
+        staff_id TEXT NOT NULL DEFAULT 'any',
+        booking_date TEXT NOT NULL,
+        start_time TEXT NOT NULL,
+        end_time TEXT NOT NULL,
+        start_minutes INTEGER NOT NULL,
+        end_minutes INTEGER NOT NULL,
+        price_rub INTEGER NOT NULL,
+        duration_minutes INTEGER NOT NULL,
+        status TEXT NOT NULL DEFAULT 'confirmed',
+        consent_accepted INTEGER NOT NULL DEFAULT 1,
+        telegram_status TEXT NOT NULL DEFAULT 'sent',
+        telegram_attempts INTEGER NOT NULL DEFAULT 1,
+        telegram_last_error TEXT,
+        created_at TEXT NOT NULL DEFAULT '2026-10-28T10:00:00Z'
+      )`
+    )
+    .run();
+
+  // Вставляем данные в старую схему
+  await legacyDb
+    .prepare(
+      `INSERT INTO services (id, category, category_label, title, description, price_rub, duration_minutes, is_active, sort_order)
+       VALUES ('manicure-gel', 'manicure', 'Маникюр', 'Маникюр с гель-лаком', 'Описание', 1700, 90, 1, 1)`
+    )
+    .run();
+
+  await legacyDb
+    .prepare(
+      `INSERT INTO staff (id, name, role, default_category, is_active)
+       VALUES ('master-anna', 'Анна', 'Мастер маникюра', 'manicure', 1)`
+    )
+    .run();
+
+  for (let d = 0; d <= 6; d++) {
+    await legacyDb
+      .prepare(
+        `INSERT INTO working_hours (day_of_week, open_time, close_time, break_start, break_end, is_closed)
+         VALUES (?, '10:00', '21:00', '14:30', '15:00', 0)`
+      )
+      .bind(d)
+      .run();
+  }
+
+  // Существующая реальная запись клиента в старой схеме
+  await legacyDb
+    .prepare(
+      `INSERT INTO bookings (
+         id, idempotency_key, first_name, last_name, phone, service_id, staff_id,
+         booking_date, start_time, end_time, start_minutes, end_minutes,
+         price_rub, duration_minutes, status, consent_accepted, telegram_status, telegram_attempts
+       ) VALUES (
+         'LEA-OLD-001', 'idem_old_001', 'Виктория', 'Романова', '+7 916 111-22-33',
+         'manicure-gel', 'master-anna', '2026-11-10', '10:00', '11:30', 600, 690,
+         1700, 90, 'confirmed', 1, 'sent', 1
+       )`
+    )
+    .run();
+
+  const legacyEnv = {
+    DB: legacyDb,
+    __TEST_NOW_ISO: '2026-10-29T09:00:00.000Z',
+    TELEGRAM_BOT_TOKEN: '123456789:TEST_BOT_SECRET_TOKEN_DO_NOT_LEAK',
+    TELEGRAM_CHAT_ID: '-100987654321',
+    __TEST_TELEGRAM_FETCH: async () =>
+      new Response(JSON.stringify({ ok: true, result: { message_id: 1 } }), {
+        status: 200,
+      }),
+  };
+
+  // 1. Проверяем, что /api/catalog работает со старой базой без ошибок
+  const catRes = await callWorker(legacyEnv, 'GET', '/api/catalog');
+  assert.equal(catRes.status, 200);
+  assert.equal(catRes.data.ok, true);
+  assert.equal(catRes.data.services[0].id, 'manicure-gel');
+  assert.equal(catRes.data.masters[0].id, 'master-anna');
+
+  // 2. Проверяем, что администратор в /admin видит старую запись Виктории Романовой
+  const adminRes = await callWorker(
+    legacyEnv,
+    'GET',
+    '/api/admin/overview',
+    null,
+    { Authorization: 'Bearer LeaAdmin2026!' }
+  );
+  assert.equal(adminRes.status, 200);
+  assert.equal(adminRes.data.bookings.length, 1);
+  assert.equal(adminRes.data.bookings[0].id, 'LEA-OLD-001');
+  assert.equal(adminRes.data.bookings[0].clientFirstName, 'Виктория');
+  assert.equal(adminRes.data.bookings[0].clientLastName, 'Романова');
+
+  // 3. Проверяем, что старая запись на 10:00–11:30 защищена от двойного бронирования!
+  const overlapLegacy = await callWorker(legacyEnv, 'POST', '/api/bookings', {
+    idempotencyKey: 'idem_new_overlap_legacy',
+    serviceId: 'manicure-gel',
+    masterId: 'master-anna',
+    date: '2026-11-10',
+    time: '10:30',
+    clientName: 'Марина',
+    clientLastName: 'Орлова',
+    clientPhone: '+7 (916) 999-88-77',
+    consentAccepted: true,
+  });
+  assert.equal(overlapLegacy.status, 409);
+
+  // 4. А запись на свободное время 12:00 в старую таблицу проходит успешно
+  const okLegacy = await callWorker(legacyEnv, 'POST', '/api/bookings', {
+    idempotencyKey: 'idem_new_ok_legacy',
+    serviceId: 'manicure-gel',
+    masterId: 'master-anna',
+    date: '2026-11-10',
+    time: '12:00',
+    clientName: 'Марина',
+    clientLastName: 'Орлова',
+    clientPhone: '+7 (916) 999-88-77',
+    consentAccepted: true,
+  });
+  assert.equal(okLegacy.status, 201);
+});
+

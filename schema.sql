@@ -116,9 +116,11 @@ CREATE TABLE IF NOT EXISTS bookings (
   duration_minutes INTEGER NOT NULL,
   price_rub INTEGER NOT NULL,
   client_name TEXT NOT NULL,
+  client_first_name TEXT NOT NULL DEFAULT '',
+  client_last_name TEXT NOT NULL DEFAULT '',
   client_phone TEXT NOT NULL,
   client_comment TEXT NOT NULL DEFAULT '',
-  status TEXT NOT NULL DEFAULT 'confirmed' CHECK (status IN ('confirmed', 'cancelled')),
+  status TEXT NOT NULL DEFAULT 'confirmed' CHECK (status IN ('pending', 'confirmed', 'cancelled', 'completed')),
   notification_status TEXT NOT NULL DEFAULT 'pending' CHECK (
     notification_status IN ('pending', 'sent', 'failed_retry_scheduled', 'failed_permanent', 'awaiting_configuration')
   ),
@@ -129,6 +131,7 @@ CREATE TABLE IF NOT EXISTS bookings (
   telegram_last_error TEXT NOT NULL DEFAULT '',
   is_demo INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL,
+  updated_at TEXT,
   cancelled_at TEXT,
   CHECK (end_minute > start_minute)
 );
@@ -184,6 +187,18 @@ CREATE TABLE IF NOT EXISTS notification_logs (
 );
 
 CREATE INDEX IF NOT EXISTS idx_notification_logs_booking ON notification_logs(booking_id);
+
+-- 13. История изменений записи (booking_audit_logs)
+CREATE TABLE IF NOT EXISTS booking_audit_logs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  booking_id TEXT NOT NULL REFERENCES bookings(id) ON DELETE CASCADE,
+  action TEXT NOT NULL,                            -- created, confirmed, cancelled, rescheduled, status_changed
+  actor TEXT NOT NULL DEFAULT 'system',            -- client, admin, system
+  details TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_booking_audit_logs_booking ON booking_audit_logs(booking_id);
 
 -- ============================================================================
 -- ТРИГГЕРЫ ЦЕЛОСТНОСТИ И ЗАЩИТЫ ОТ ДВОЙНОГО БРОНИРОВАНИЯ НА УРОВНЕ СУБД

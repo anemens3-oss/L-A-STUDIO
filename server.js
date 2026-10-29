@@ -29,6 +29,7 @@ const workerEnv = {
   DB: db,
   TELEGRAM_BOT_TOKEN: process.env.TELEGRAM_BOT_TOKEN || '',
   TELEGRAM_CHAT_ID: process.env.TELEGRAM_CHAT_ID || '',
+  ADMIN_USERNAME: process.env.ADMIN_USERNAME || 'admin',
   ADMIN_PASSWORD_SHA256: process.env.ADMIN_PASSWORD_SHA256 || '',
 };
 
@@ -109,10 +110,12 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
-    // Отдача статических файлов фронтенда
+    // Отдача статических файлов фронтенда (включая отдельную страницу /admin)
     let safePath = path.normalize(decodeURIComponent(fullUrl.pathname)).replace(/^(\.\.(\/|\\|$))+/, '');
     if (safePath === '/' || safePath === '\\') {
       safePath = '/index.html';
+    } else if (safePath === '/admin' || safePath === '/admin/') {
+      safePath = '/admin.html';
     }
 
     const candidatePaths = [

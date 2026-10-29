@@ -759,11 +759,14 @@
         </nav>
 
         <div class="footer-legal-col">
+          <a href="/admin" class="footer-link-btn">
+            Панель администратора (/admin)
+          </a>
           <button type="button" class="footer-link-btn" data-open-modal="privacy-modal">
             Политика обработки персональных данных
           </button>
           <button type="button" class="footer-link-btn" data-open-modal="admin-modal">
-            Панель администратора и статус Telegram Bot API
+            Быстрый обзор и статус Telegram Bot API
           </button>
           <p class="footer-legal-note">
             Юридические документы на сайте являются типовыми шаблонами и требуют проверки владельцем салона перед коммерческим запуском.
@@ -840,11 +843,10 @@
                 id="admin-password-input"
                 class="field-input"
                 placeholder="Введите пароль администратора"
-                value="LeaAdmin2026!"
                 required
               />
               <span class="field-hint">
-                Демо-пароль для проверки: <code>LeaAdmin2026!</code> (на сервере хранится только SHA-256 хеш).
+                На сервере хранится только криптографический SHA-256 хеш пароля (<code>ADMIN_PASSWORD_SHA256</code>). Полная панель доступна на странице <a href="/admin"><code>/admin</code></a>.
               </span>
             </div>
             <button type="submit" class="btn btn-primary">

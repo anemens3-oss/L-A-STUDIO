@@ -1,0 +1,495 @@
+<!DOCTYPE html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>LÉA STUDIO — Панель администратора</title>
+    <meta
+      name="description"
+      content="Защищённая панель администратора салона красоты LÉA STUDIO: управление онлайн-записями, расписанием мастеров и каталогом услуг."
+    />
+    <meta name="robots" content="noindex, nofollow" />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body class="admin-page-body">
+    <!-- Шапка панели администратора -->
+    <header class="site-header admin-site-header">
+      <div class="container header-inner">
+        <div class="brand-group">
+          <a href="/" class="brand-logo" aria-label="LÉA STUDIO — На главную">
+            <span class="brand-monogram">LÉA</span>
+            <span class="brand-sub">ADMINISTRATION</span>
+          </a>
+          <span class="demo-pill" id="admin-connection-badge">Защищённый режим</span>
+        </div>
+
+        <div class="header-actions">
+          <a href="/" class="btn btn-outline btn-sm">← На сайт салона</a>
+          <button
+            type="button"
+            class="btn btn-ghost btn-sm"
+            id="admin-logout-btn"
+            hidden
+          >
+            Выйти из аккаунта
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <main class="admin-main container">
+      <!-- ЭКРАН 1: ЗАЩИЩЁННЫЙ ВХОД АДМИНИСТРАТОРА -->
+      <section class="admin-auth-card" id="admin-login-section" aria-labelledby="admin-login-title">
+        <div class="admin-auth-header">
+          <p class="eyebrow">Доступ ограничен • Server-Side Auth</p>
+          <h1 class="section-title" id="admin-login-title">Вход в панель управления LÉA STUDIO</h1>
+          <p class="section-lead">
+            Авторизация проверяется на сервере Cloudflare Worker. Пароль передаётся по защищённому каналу и сверяется по криптографическому хешу SHA-256.
+          </p>
+        </div>
+
+        <form id="admin-login-form" class="admin-login-form" novalidate>
+          <div class="form-field">
+            <label for="admin-username-input" class="field-label">Логин администратора</label>
+            <input
+              type="text"
+              id="admin-username-input"
+              class="field-input"
+              name="login"
+               value="admin"
+              placeholder="admin"
+              autocomplete="username"
+              required
+            />
+          </div>
+
+          <div class="form-field">
+            <label for="admin-password-input" class="field-label">Пароль администратора</label>
+            <input
+              type="password"
+              id="admin-password-input"
+              class="field-input"
+              name="password"
+              placeholder="Введите серверный пароль"
+              autocomplete="current-password"
+              required
+            />
+          </div>
+
+          <div class="form-alert" id="admin-login-error" role="alert" hidden></div>
+
+          <div class="admin-login-actions">
+            <button type="submit" class="btn btn-primary btn-lg" id="admin-login-submit">
+              Войти в панель администратора
+            </button>
+          </div>
+
+          <p class="field-hint admin-login-hint">
+            Учётные данные проверяются на сервере по криптографическому SHA-256 хешу (переменная <code>ADMIN_PASSWORD_SHA256</code> в Cloudflare Workers).
+          </p>
+        </form>
+      </section>
+
+      <!-- ЭКРАН 2: РАБОЧАЯ ОБЛАСТЬ АДМИНИСТРАТОРА (СКРЫТА ДО АВТОРИЗАЦИИ) -->
+      <section id="admin-dashboard-section" class="admin-dashboard" hidden>
+        <!-- Верхняя панель статуса и автообновления -->
+        <div class="admin-topbar">
+          <div>
+            <p class="eyebrow" id="admin-server-date-label">Синхронизация с базой D1</p>
+            <h1 class="admin-dashboard-title">Управление записями и расписанием</h1>
+          </div>
+
+          <div class="admin-topbar-controls">
+            <label class="admin-autorefresh-toggle">
+              <input type="checkbox" id="admin-autorefresh-checkbox" checked />
+              <span>Автообновление (15 сек)</span>
+            </label>
+            <span class="admin-last-sync" id="admin-last-sync-text">Обновлено только что</span>
+            <button type="button" class="btn btn-outline btn-sm" id="admin-refresh-now-btn">
+              Обновить сейчас
+            </button>
+          </div>
+        </div>
+
+        <!-- Карточки ключевых показателей (Главный экран панели) -->
+        <div class="admin-kpi-grid" aria-label="Сводка по записям из базы данных">
+          <article class="admin-kpi-card">
+            <span class="admin-kpi-label">Записи на сегодня</span>
+            <strong class="admin-kpi-value" id="kpi-today-count">0</strong>
+            <span class="admin-kpi-note" id="kpi-today-date-note">Активные визиты на сегодня</span>
+          </article>
+
+          <article class="admin-kpi-card">
+            <span class="admin-kpi-label">Предстоящие записи</span>
+            <strong class="admin-kpi-value" id="kpi-upcoming-count">0</strong>
+            <span class="admin-kpi-note">Подтверждённые будущие визиты</span>
+          </article>
+
+          <article class="admin-kpi-card">
+            <span class="admin-kpi-label">Подтверждённые / Новые</span>
+            <strong class="admin-kpi-value" id="kpi-confirmed-count">0</strong>
+            <span class="admin-kpi-note">Всего активных броней в БД</span>
+          </article>
+
+          <article class="admin-kpi-card">
+            <span class="admin-kpi-label">Отменённые записи</span>
+            <strong class="admin-kpi-value" id="kpi-cancelled-count">0</strong>
+            <span class="admin-kpi-note">Слоты освобождены</span>
+          </article>
+        </div>
+
+        <!-- Навигация по разделам панели -->
+        <nav class="admin-tabs-nav" aria-label="Разделы панели администратора">
+          <button
+            type="button"
+            class="admin-tab-btn is-active"
+            data-admin-tab="bookings"
+          >
+            Записи и календарь
+          </button>
+          <button
+            type="button"
+            class="admin-tab-btn"
+            data-admin-tab="services"
+          >
+            Услуги и цены
+          </button>
+          <button
+            type="button"
+            class="admin-tab-btn"
+            data-admin-tab="masters"
+          >
+            Мастера и расписание
+          </button>
+          <button
+            type="button"
+            class="admin-tab-btn"
+            data-admin-tab="notifications"
+          >
+            Уведомления Telegram
+          </button>
+        </nav>
+
+        <!-- Уведомление об результате операции -->
+        <div class="form-alert" id="admin-action-feedback" role="status" hidden></div>
+
+        <!-- Вкладка 1: ЗАПИСИ И КАЛЕНДАРЬ -->
+        <div class="admin-tab-panel" id="admin-tab-bookings">
+          <div class="admin-overview-split">
+            <!-- Блок календаря загруженности -->
+            <aside class="admin-calendar-box">
+              <div class="admin-box-header">
+                <h2 class="admin-box-title">Календарь записей</h2>
+                <div class="calendar-nav">
+                  <button type="button" class="cal-nav-btn" id="admin-cal-prev" aria-label="Предыдущий месяц">←</button>
+                  <span class="calendar-month-label" id="admin-cal-month-label">Месяц</span>
+                  <button type="button" class="cal-nav-btn" id="admin-cal-next" aria-label="Следующий месяц">→</button>
+                </div>
+              </div>
+              <div class="calendar-weekdays" aria-hidden="true">
+                <span>Пн</span><span>Вт</span><span>Ср</span><span>Чт</span><span>Пт</span><span>Сб</span><span>Вс</span>
+              </div>
+              <div class="calendar-days-grid" id="admin-calendar-grid"></div>
+              <div class="admin-calendar-quick">
+                <button type="button" class="btn btn-ghost btn-sm" id="admin-filter-all-dates-btn">Все даты</button>
+                <button type="button" class="btn btn-outline btn-sm" id="admin-filter-today-btn">Сегодня</button>
+              </div>
+            </aside>
+
+            <!-- Блок ближайших клиентов -->
+            <section class="admin-upcoming-box">
+              <div class="admin-box-header">
+                <h2 class="admin-box-title">Ближайшие клиенты</h2>
+                <span class="field-hint">Сортировка по дате и времени визита</span>
+              </div>
+              <div id="admin-upcoming-list" class="admin-upcoming-list"></div>
+            </section>
+          </div>
+
+          <!-- Панель фильтров и поиска -->
+          <section class="admin-filters-bar" aria-label="Фильтрация и поиск записей">
+            <div class="form-field">
+              <label for="filter-search-input" class="field-label">Поиск по имени, фамилии или телефону</label>
+              <input
+                type="search"
+                id="filter-search-input"
+                class="field-input"
+                placeholder="Например: Анна, Иванова, 999 или LEA-"
+              />
+            </div>
+
+            <div class="form-field">
+              <label for="filter-date-input" class="field-label">Дата визита</label>
+              <input type="date" id="filter-date-input" class="field-input" />
+            </div>
+
+            <div class="form-field">
+              <label for="filter-master-select" class="field-label">Мастер</label>
+              <select id="filter-master-select" class="field-input">
+                <option value="all">Все мастера</option>
+              </select>
+            </div>
+
+            <div class="form-field">
+              <label for="filter-service-select" class="field-label">Услуга</label>
+              <select id="filter-service-select" class="field-input">
+                <option value="all">Все услуги</option>
+              </select>
+            </div>
+
+            <div class="form-field">
+              <label for="filter-status-select" class="field-label">Статус</label>
+              <select id="filter-status-select" class="field-input">
+                <option value="all">Все статусы</option>
+                <option value="confirmed">Подтверждена</option>
+                <option value="pending">Ожидает подтверждения</option>
+                <option value="completed">Выполнена</option>
+                <option value="cancelled">Отменена</option>
+              </select>
+            </div>
+
+            <div class="admin-filters-reset">
+              <button type="button" class="btn btn-ghost btn-sm" id="filter-reset-btn">
+                Сбросить фильтры
+              </button>
+            </div>
+          </section>
+
+          <!-- Список записей (Табличный вид на ПК + адаптивные карточки на телефоне) -->
+          <section class="admin-bookings-section" aria-label="Список записей клиентов">
+            <div class="admin-box-header">
+              <h2 class="admin-box-title">
+                Журнал записей клиентов (<span id="admin-bookings-shown-count">0</span>)
+              </h2>
+            </div>
+
+            <div class="admin-table-wrapper">
+              <table class="admin-bookings-table">
+                <thead>
+                  <tr>
+                    <th>ID / Создана</th>
+                    <th>Имя и фамилия</th>
+                    <th>Телефон</th>
+                    <th>Услуга и стоимость</th>
+                    <th>Мастер</th>
+                    <th>Дата и время</th>
+                    <th>Статус</th>
+                    <th>Действия</th>
+                  </tr>
+                </thead>
+                <tbody id="admin-bookings-tbody"></tbody>
+              </table>
+            </div>
+
+            <!-- Адаптивные карточки для мобильных экранов -->
+            <div class="admin-bookings-cards" id="admin-bookings-cards"></div>
+          </section>
+        </div>
+
+        <!-- Вкладка 2: УПРАВЛЕНИЕ УСЛУГАМИ -->
+        <div class="admin-tab-panel" id="admin-tab-services" hidden>
+          <div class="admin-two-col">
+            <section class="admin-card-panel">
+              <h2 class="admin-box-title" id="service-form-title">Добавить или изменить услугу</h2>
+              <p class="field-hint">
+                Отключение услуги скрывает её из формы записи на сайте, сохраняя историю всех существующих записей.
+              </p>
+              <form id="admin-service-form" class="admin-entity-form">
+                <input type="hidden" id="srv-id-input" />
+                <div class="form-field">
+                  <label for="srv-title-input" class="field-label">Название услуги *</label>
+                  <input type="text" id="srv-title-input" class="field-input" required placeholder="Например: Архитектурный маникюр" />
+                </div>
+                <div class="form-row-two">
+                  <div class="form-field">
+                    <label for="srv-category-select" class="field-label">Категория *</label>
+                    <select id="srv-category-select" class="field-input"></select>
+                  </div>
+                  <div class="form-field">
+                    <label for="srv-duration-input" class="field-label">Длительность (мин, кратно 5) *</label>
+                    <input type="number" id="srv-duration-input" class="field-input" min="15" max="360" step="5" value="60" required />
+                  </div>
+                </div>
+                <div class="form-row-two">
+                  <div class="form-field">
+                    <label for="srv-price-input" class="field-label">Стоимость (₽) *</label>
+                    <input type="number" id="srv-price-input" class="field-input" min="100" step="50" value="3000" required />
+                  </div>
+                  <div class="form-field">
+                    <label for="srv-active-select" class="field-label">Доступность для записи</label>
+                    <select id="srv-active-select" class="field-input">
+                      <option value="1">Включена (доступна на сайте)</option>
+                      <option value="0">Отключена (скрыта)</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="form-field">
+                  <label for="srv-desc-input" class="field-label">Описание процедуры</label>
+                  <textarea id="srv-desc-input" class="field-input field-textarea" rows="3" placeholder="Краткое описание этапов и материалов"></textarea>
+                </div>
+                <div class="admin-form-buttons">
+                  <button type="submit" class="btn btn-primary btn-sm">Сохранить услугу</button>
+                  <button type="button" class="btn btn-ghost btn-sm" id="srv-form-clear-btn">Очистить форму</button>
+                </div>
+              </form>
+            </section>
+
+            <section class="admin-card-panel">
+              <h2 class="admin-box-title">Каталог услуг в базе данных</h2>
+              <div id="admin-services-list" class="admin-entities-list"></div>
+            </section>
+          </div>
+        </div>
+
+        <!-- Вкладка 3: УПРАВЛЕНИЕ МАСТЕРАМИ И РАСПИСАНИЕМ -->
+        <div class="admin-tab-panel" id="admin-tab-masters" hidden>
+          <div class="admin-two-col">
+            <section class="admin-card-panel">
+              <h2 class="admin-box-title" id="master-form-title">Профиль мастера и его услуги</h2>
+              <form id="admin-master-form" class="admin-entity-form">
+                <input type="hidden" id="mst-id-input" />
+                <div class="form-row-two">
+                  <div class="form-field">
+                    <label for="mst-name-input" class="field-label">Имя и фамилия мастера *</label>
+                    <input type="text" id="mst-name-input" class="field-input" required placeholder="Например: Анна Сокова" />
+                  </div>
+                  <div class="form-field">
+                    <label for="mst-role-input" class="field-label">Должность / статус *</label>
+                    <input type="text" id="mst-role-input" class="field-input" required placeholder="Ведущий мастер" />
+                  </div>
+                </div>
+                <div class="form-row-two">
+                  <div class="form-field">
+                    <label for="mst-exp-input" class="field-label">Стаж (лет)</label>
+                    <input type="number" id="mst-exp-input" class="field-input" min="1" max="40" value="5" />
+                  </div>
+                  <div class="form-field">
+                    <label for="mst-active-select" class="field-label">Статус мастера</label>
+                    <select id="mst-active-select" class="field-input">
+                      <option value="1">Активен (принимает записи)</option>
+                      <option value="0">Временно отключён</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="form-field">
+                  <label class="field-label">Оказываемые услуги</label>
+                  <div id="mst-services-checkboxes" class="admin-checkbox-grid"></div>
+                </div>
+                <div class="admin-form-buttons">
+                  <button type="submit" class="btn btn-primary btn-sm">Сохранить мастера</button>
+                  <button type="button" class="btn btn-ghost btn-sm" id="mst-form-clear-btn">Новый мастер</button>
+                </div>
+              </form>
+            </section>
+
+            <section class="admin-card-panel">
+              <h2 class="admin-box-title">Список мастеров и настройка графика</h2>
+              <div id="admin-masters-list" class="admin-entities-list"></div>
+            </section>
+          </div>
+
+          <!-- Редактор расписания выбранного мастера -->
+          <section class="admin-card-panel admin-schedule-editor" id="admin-schedule-editor" hidden>
+            <div class="admin-box-header">
+              <h2 class="admin-box-title" id="schedule-editor-title">Рабочее расписание и перерывы мастера</h2>
+              <button type="button" class="btn btn-ghost btn-sm" id="schedule-editor-close-btn">Закрыть</button>
+            </div>
+            <form id="admin-schedule-form">
+              <input type="hidden" id="schedule-master-id" />
+              <div id="schedule-days-rows" class="schedule-days-rows"></div>
+              <div class="admin-form-buttons">
+                <button type="submit" class="btn btn-primary btn-sm">Сохранить расписание по дням недели</button>
+              </div>
+            </form>
+
+            <div class="schedule-exceptions-block">
+              <h3 class="admin-subtitle">Выходные дни и особые смены по датам</h3>
+              <form id="admin-exception-form" class="admin-exception-form">
+                <input type="date" id="exc-date-input" class="field-input" required />
+                <select id="exc-type-select" class="field-input">
+                  <option value="day_off">Полный выходной день</option>
+                  <option value="custom">Особые часы работы</option>
+                </select>
+                <input type="text" id="exc-reason-input" class="field-input" placeholder="Причина (отпуск, обучение)" />
+                <button type="submit" class="btn btn-outline btn-sm">Добавить дату</button>
+              </form>
+              <div id="schedule-exceptions-list" class="admin-entities-list"></div>
+            </div>
+          </section>
+        </div>
+
+        <!-- Вкладка 4: УВЕДОМЛЕНИЯ TELEGRAM -->
+        <div class="admin-tab-panel" id="admin-tab-notifications" hidden>
+          <section class="admin-card-panel">
+            <div class="admin-box-header">
+              <div>
+                <h2 class="admin-box-title">Статус интеграции с официальным Telegram Bot API</h2>
+                <p class="field-hint" id="admin-tg-status-text">Проверка конфигурации...</p>
+              </div>
+              <button type="button" class="btn btn-outline btn-sm" id="admin-retry-tg-btn">
+                Повторить отправку очереди
+              </button>
+            </div>
+            <div id="admin-tg-logs-list" class="admin-entities-list"></div>
+          </section>
+        </div>
+      </section>
+    </main>
+
+    <!-- МОДАЛЬНОЕ ОКНО: ПЕРЕНОС ЗАПИСИ И ПРОСМОТР ИСТОРИИ -->
+    <div class="modal-backdrop" id="admin-booking-modal" role="dialog" aria-modal="true" aria-labelledby="modal-booking-title" hidden>
+      <div class="modal-dialog modal-dialog-wide">
+        <div class="modal-header">
+          <div>
+            <p class="eyebrow" id="modal-booking-id-label">Запись</p>
+            <h2 class="modal-title" id="modal-booking-title">Управление записью клиента</h2>
+          </div>
+          <button type="button" class="modal-close" id="modal-booking-close" aria-label="Закрыть окно">✕</button>
+        </div>
+
+        <div class="modal-body">
+          <div class="admin-modal-grid">
+            <!-- Полная карточка записи -->
+            <div class="admin-modal-details" id="modal-booking-details"></div>
+
+            <!-- Форма переноса на другое свободное время -->
+            <div class="admin-modal-reschedule">
+              <h3 class="admin-subtitle">Перенести запись на другое свободное время</h3>
+              <p class="field-hint">
+                Сервер автоматически проверит расписание мастера, перерывы и отсутствие пересечений с другими записями.
+              </p>
+              <form id="admin-reschedule-form" class="admin-entity-form">
+                <input type="hidden" id="reschedule-booking-id" />
+                <div class="form-field">
+                  <label for="reschedule-master-select" class="field-label">Мастер</label>
+                  <select id="reschedule-master-select" class="field-input" required></select>
+                </div>
+                <div class="form-field">
+                  <label for="reschedule-date-input" class="field-label">Новая дата визита</label>
+                  <input type="date" id="reschedule-date-input" class="field-input" required />
+                </div>
+                <div class="form-field">
+                  <label for="reschedule-time-select" class="field-label">Доступное свободное время</label>
+                  <select id="reschedule-time-select" class="field-input" required>
+                    <option value="">Выберите дату для загрузки свободных слотов...</option>
+                  </select>
+                </div>
+                <div class="form-alert" id="reschedule-error-box" role="alert" hidden></div>
+                <button type="submit" class="btn btn-primary btn-sm" id="reschedule-submit-btn">
+                  Подтвердить перенос записи
+                </button>
+              </form>
+
+              <hr class="admin-divider" />
+
+              <h3 class="admin-subtitle">История изменений записи</h3>
+              <div id="modal-booking-audit-list" class="admin-audit-list"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script type="module" src="/admin.js"></script>
+  </body>
+</html>
