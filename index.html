@@ -1,0 +1,899 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>LÉA STUDIO — Салон красоты и онлайн-запись</title>
+    <meta
+      name="description"
+      content="Премиальный европейский салон красоты LÉA STUDIO. Пространство красоты, заботы о себе и бережного ухода с реальной онлайн-записью без пересечений."
+    />
+    <meta property="og:title" content="LÉA STUDIO — Салон красоты и онлайн-запись" />
+    <meta
+      property="og:description"
+      content="Твоя красота. Твоё время. Твой LÉA. Выберите услугу, мастера и удобное время онлайн."
+    />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="theme-color" content="#FFFCFA" />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <a href="#main-content" class="skip-link">Перейти к основному содержанию</a>
+
+    <!-- ШАПКА САЙТА (Строгий 3-зонный контракт: Бренд — Навигация — Главное действие) -->
+    <header class="site-header" id="top">
+      <div class="container header-inner">
+        <a href="#top" class="brand-logo" aria-label="LÉA STUDIO — На главную">
+          LÉA STUDIO
+        </a>
+
+        <nav class="primary-nav" id="primary-nav" aria-label="Основная навигация">
+          <a href="#hero" class="nav-link">Главная</a>
+          <a href="#services" class="nav-link">Услуги</a>
+          <a href="#masters" class="nav-link">Мастера</a>
+          <a href="#about" class="nav-link">О салоне</a>
+          <a href="#contacts" class="nav-link">Контакты</a>
+        </nav>
+
+        <div class="header-actions">
+          <a href="#booking" class="btn btn-primary btn-header" data-scroll-to="booking">
+            Записаться
+          </a>
+          <button
+            type="button"
+            class="mobile-menu-toggle"
+            id="mobile-menu-toggle"
+            aria-expanded="false"
+            aria-controls="mobile-nav-drawer"
+            aria-label="Открыть меню навигации"
+          >
+            <span class="hamburger-line"></span>
+            <span class="hamburger-line"></span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Мобильное меню (компактное управление пальцем) -->
+      <div class="mobile-nav-drawer" id="mobile-nav-drawer" hidden>
+        <nav class="mobile-nav-links" aria-label="Мобильная навигация">
+          <a href="#hero" class="mobile-nav-link">Главная</a>
+          <a href="#services" class="mobile-nav-link">Услуги</a>
+          <a href="#masters" class="mobile-nav-link">Мастера</a>
+          <a href="#about" class="mobile-nav-link">О салоне</a>
+          <a href="#contacts" class="mobile-nav-link">Контакты</a>
+          <a href="#booking" class="btn btn-primary mobile-nav-cta">Записаться онлайн</a>
+        </nav>
+      </div>
+    </header>
+
+    <main id="main-content">
+      <!-- Уведомление о состоянии сети / API, если сервер недоступен -->
+      <div id="api-error-banner" class="api-error-banner" role="alert" hidden>
+        <div class="container api-error-inner">
+          <div>
+            <strong>Сервер расписания временно недоступен.</strong>
+            <span id="api-error-text">Проверьте подключение к интернету или настройку адреса API.</span>
+          </div>
+          <button type="button" class="btn btn-secondary btn-sm" id="retry-catalog-btn">
+            Повторить загрузку
+          </button>
+        </div>
+      </div>
+
+      <!-- ПЕРВЫЙ ЭКРАН (HERO) -->
+      <section class="hero-section" id="hero">
+        <div class="container hero-grid">
+          <div class="hero-copy">
+            <p class="eyebrow">Европейская эстетика бережного ухода</p>
+            <h1 class="hero-title">Твоя красота. Твоё время. Твой LÉA.</h1>
+            <p class="hero-subtitle">
+              Пространство красоты, заботы о себе и маленьких удовольствий каждый день
+            </p>
+
+            <div class="hero-cta-group">
+              <a href="#booking" class="btn btn-primary btn-lg" data-scroll-to="booking">
+                Записаться онлайн
+              </a>
+              <a href="#services" class="btn btn-secondary btn-lg">
+                Выбрать услугу
+              </a>
+            </div>
+
+            <div class="hero-highlights" aria-label="Преимущества студии">
+              <div class="highlight-item">
+                <span class="highlight-value">100%</span>
+                <span class="highlight-label">стерильность инструментов по стандарту СанПиН</span>
+              </div>
+              <div class="highlight-divider" aria-hidden="true"></div>
+              <div class="highlight-item">
+                <span class="highlight-value">Точно в срок</span>
+                <span class="highlight-label">атомарная защита расписания без накладок и ожидания</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Эстетичная визуальная композиция студии (собственная архитектурная SVG-иллюстрация + CSS) -->
+          <div class="hero-visual">
+            <div class="hero-artwork-frame" role="img" aria-label="Интерьер салона красоты LÉA STUDIO в светлых пудровых и травертиновых тонах">
+              <svg
+                class="hero-svg-scene"
+                viewBox="0 0 640 520"
+                fill="none"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <defs>
+                  <linearGradient id="wallGlow" x1="0" y1="0" x2="640" y2="520" gradientUnits="userSpaceOnUse">
+                    <stop offset="0%" stop-color="#FFFCFA" />
+                    <stop offset="55%" stop-color="#F8E9E8" />
+                    <stop offset="100%" stop-color="#EDE2D7" />
+                  </linearGradient>
+                  <linearGradient id="archGrad" x1="160" y1="50" x2="480" y2="460" gradientUnits="userSpaceOnUse">
+                    <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.92" />
+                    <stop offset="100%" stop-color="#F4DCDC" stop-opacity="0.65" />
+                  </linearGradient>
+                  <linearGradient id="mirrorGlass" x1="220" y1="90" x2="400" y2="390" gradientUnits="userSpaceOnUse">
+                    <stop offset="0%" stop-color="#FFFCFA" />
+                    <stop offset="50%" stop-color="#F8E9E8" />
+                    <stop offset="100%" stop-color="#E7D4D3" />
+                  </linearGradient>
+                  <linearGradient id="berryAccent" x1="0" y1="0" x2="1" y2="1">
+                    <stop offset="0%" stop-color="#C9929C" />
+                    <stop offset="100%" stop-color="#B87D88" />
+                  </linearGradient>
+                </defs>
+
+                <!-- Фон залитого утренним светом зала -->
+                <rect width="640" height="520" rx="24" fill="url(#wallGlow)" />
+
+                <!-- Мягкие солнечные лучи на стене -->
+                <path d="M0 70L640 240V430L0 220V70Z" fill="#FFFFFF" fill-opacity="0.45" />
+                <path d="M0 260L640 430V500L0 330V260Z" fill="#FFFFFF" fill-opacity="0.3" />
+
+                <!-- Архитектурная ниша из светлого травертина -->
+                <path
+                  d="M150 470V210C150 116.112 226.112 40 320 40C413.888 40 490 116.112 490 210V470H150Z"
+                  fill="url(#archGrad)"
+                  stroke="#E5D5CB"
+                  stroke-width="1.5"
+                />
+
+                <!-- Бесшовное арочное зеркало с подсветкой -->
+                <path
+                  d="M210 420V205C210 144.249 259.249 95 320 95C380.751 95 430 144.249 430 205V420H210Z"
+                  fill="url(#mirrorGlass)"
+                  stroke="#B87D88"
+                  stroke-opacity="0.35"
+                  stroke-width="2"
+                />
+                <!-- Световой блик на зеркале -->
+                <path d="M245 145L365 395" stroke="#FFFFFF" stroke-width="18" stroke-linecap="round" stroke-opacity="0.55" />
+                <path d="M285 125L395 355" stroke="#FFFFFF" stroke-width="6" stroke-linecap="round" stroke-opacity="0.65" />
+
+                <!-- Консольный столик из тёплого камня -->
+                <rect x="115" y="416" width="410" height="22" rx="11" fill="#EDE2D7" stroke="#D9C8BC" stroke-width="1.5" />
+                <rect x="165" y="438" width="26" height="62" rx="4" fill="#E3D4C8" />
+                <rect x="449" y="438" width="26" height="62" rx="4" fill="#E3D4C8" />
+
+                <!-- Керамическая ваза ручной работы -->
+                <path
+                  d="M398 416C382 416 373 396 376 374C379 352 391 342 394 326H422C425 342 437 352 440 374C443 396 434 416 418 416H398Z"
+                  fill="#FFFCFA"
+                  stroke="#C9B7AD"
+                  stroke-width="1.8"
+                />
+
+                <!-- Изящная ботаническая ветвь в вазе -->
+                <path
+                  d="M408 326C406 278 386 226 350 182"
+                  stroke="#887B76"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                />
+                <path
+                  d="M402 292C424 268 446 250 470 242"
+                  stroke="#887B76"
+                  stroke-width="1.6"
+                  stroke-linecap="round"
+                />
+                <!-- Лепестки в пудрово-ягодных оттенках -->
+                <ellipse cx="364" cy="204" rx="18" ry="9" transform="rotate(-28 364 204)" fill="url(#berryAccent)" fill-opacity="0.85" />
+                <ellipse cx="386" cy="242" rx="20" ry="9" transform="rotate(22 386 242)" fill="#D7A9B1" />
+                <ellipse cx="344" cy="176" rx="15" ry="7" transform="rotate(-12 344 176)" fill="#B87D88" />
+                <ellipse cx="442" cy="256" rx="17" ry="8" transform="rotate(-18 442 256)" fill="#D7A9B1" />
+                <ellipse cx="468" cy="238" rx="14" ry="7" transform="rotate(-32 468 238)" fill="url(#berryAccent)" />
+
+                <!-- Флакон уходовой сыворотки на каменном подносе -->
+                <rect x="200" y="406" width="96" height="10" rx="5" fill="#F4DCDC" stroke="#D5B8B8" />
+                <rect x="224" y="362" width="34" height="44" rx="10" fill="#B87D88" fill-opacity="0.85" />
+                <rect x="235" y="348" width="12" height="14" rx="3" fill="#403532" />
+                <circle cx="274" cy="392" r="14" fill="#FFFCFA" stroke="#D9C8BC" stroke-width="1.5" />
+              </svg>
+
+              <div class="hero-floating-note">
+                <span class="floating-note-title">Бережное планирование визита</span>
+                <span class="floating-note-meta">Мгновенная проверка свободных окон мастеров в реальном времени</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- РАЗДЕЛ: УСЛУГИ -->
+      <section class="section services-section" id="services">
+        <div class="container">
+          <div class="section-header">
+            <div>
+              <p class="eyebrow">Меню процедур и ритуалов</p>
+              <h2 class="section-title">Услуги салона</h2>
+            </div>
+            <p class="section-description">
+              Каждая процедура включает индивидуальную консультацию мастера, деликатную подготовку и рекомендации по домашнему уходу.
+            </p>
+          </div>
+
+          <!-- Явная пометка демонстрационных данных согласно требованиям ТЗ -->
+          <div class="demo-notice-bar" id="demo-notice-bar" role="note">
+            <span class="demo-notice-title">Демонстрационный каталог:</span>
+            <span class="demo-notice-text">
+              Перечень услуг, цены, расписание и профили специалистов являются настраиваемыми образцами и синхронизированы с серверной базой данных.
+            </span>
+          </div>
+
+          <!-- Фильтр категорий (интерактивные кнопки-вкладки) -->
+          <div
+            class="category-tabs"
+            id="service-category-tabs"
+            role="tablist"
+            aria-label="Категории услуг"
+          >
+            <!-- Заполняется динамически из /api/catalog -->
+          </div>
+
+          <!-- Сетка карточек услуг -->
+          <div class="services-grid" id="services-grid" aria-live="polite">
+            <div class="loading-skeleton">Загрузка актуального меню услуг с сервера...</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- РАЗДЕЛ: МАСТЕРА -->
+      <section class="section masters-section" id="masters">
+        <div class="container">
+          <div class="section-header">
+            <div>
+              <p class="eyebrow">Команда экспертов</p>
+              <h2 class="section-title">Мастера LÉA STUDIO</h2>
+            </div>
+            <p class="section-description">
+              Запись возможна только к специалисту, который профильно выполняет выбранную процедуру. Соответствие проверяется на сервере.
+            </p>
+          </div>
+
+          <div class="masters-grid" id="masters-grid" aria-live="polite">
+            <div class="loading-skeleton">Загрузка профилей мастеров...</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- РАЗДЕЛ: О САЛОНЕ -->
+      <section class="section about-section" id="about">
+        <div class="container">
+          <div class="about-layout">
+            <div class="about-story">
+              <p class="eyebrow">Философия пространства</p>
+              <h2 class="section-title">Тишина, свет и безупречная эстетика</h2>
+              <p class="about-lead">
+                Мы создали LÉA STUDIO как место, где забота о себе освобождена от спешки, визуального шума и случайных компромиссов.
+              </p>
+              <p class="about-body">
+                В основе нашей работы — европейский минимализм и бережное отношение к природной текстуре кожи, ногтей и волос. Мы не навязываем лишних процедур и планируем расписание с запасом времени, чтобы ваш визит начинался минута в минуту.
+              </p>
+            </div>
+
+            <div class="about-principles">
+              <article class="principle-card">
+                <span class="principle-index">01. Медицинский стандарт чистоты</span>
+                <h3 class="principle-title">Трёхступенчатая стерилизация</h3>
+                <p class="principle-text">
+                  Все инструменты проходят ультразвуковую очистку, дезинфекцию и автоклавирование в индивидуальных крафт-пакетах с индикатором контроля, вскрываемых при госте.
+                </p>
+              </article>
+
+              <article class="principle-card">
+                <span class="principle-index">02. Точность расписания</span>
+                <h3 class="principle-title">Никаких пересечений и ожидания</h3>
+                <p class="principle-text">
+                  Серверная система бронирования рассчитывает точную длительность каждой процедуры и блокирует слоты атомарно, исключая двойную запись.
+                </p>
+              </article>
+
+              <article class="principle-card">
+                <span class="principle-index">03. Сенсорный комфорт</span>
+                <h3 class="principle-title">Атмосфера отдыха</h3>
+                <p class="principle-text">
+                  Анатомические кресла-реклайнеры, мягкий дневной свет, травяной сбор или свежесваренный фильтр-кофе и деликатное общение по вашему настроению.
+                </p>
+              </article>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ГЛАВНАЯ ФУНКЦИЯ: ОНЛАЙН-ЗАПИСЬ (6 ШАГОВ) -->
+      <section class="section booking-section" id="booking">
+        <div class="container">
+          <div class="section-header">
+            <div>
+              <p class="eyebrow">Бронирование визита в реальном времени</p>
+              <h2 class="section-title">Онлайн-запись</h2>
+            </div>
+            <p class="section-description">
+              Выберите процедуру, специалиста и удобный свободный интервал. Доступность времени проверяется и резервируется на сервере.
+            </p>
+          </div>
+
+          <div class="booking-workspace">
+            <!-- Левая колонка: Пошаговая форма -->
+            <div class="booking-steps-column">
+              <!-- Индикатор прогресса шагов -->
+              <ol class="booking-stepper" id="booking-stepper" aria-label="Этапы оформления записи">
+                <li class="stepper-item is-active" data-step-indicator="1">
+                  <button type="button" class="stepper-btn" data-goto-step="1">
+                    <span class="stepper-num">1</span>
+                    <span class="stepper-label">Услуга</span>
+                  </button>
+                </li>
+                <li class="stepper-item" data-step-indicator="2">
+                  <button type="button" class="stepper-btn" data-goto-step="2" disabled>
+                    <span class="stepper-num">2</span>
+                    <span class="stepper-label">Мастер</span>
+                  </button>
+                </li>
+                <li class="stepper-item" data-step-indicator="3">
+                  <button type="button" class="stepper-btn" data-goto-step="3" disabled>
+                    <span class="stepper-num">3</span>
+                    <span class="stepper-label">Дата</span>
+                  </button>
+                </li>
+                <li class="stepper-item" data-step-indicator="4">
+                  <button type="button" class="stepper-btn" data-goto-step="4" disabled>
+                    <span class="stepper-num">4</span>
+                    <span class="stepper-label">Время</span>
+                  </button>
+                </li>
+                <li class="stepper-item" data-step-indicator="5">
+                  <button type="button" class="stepper-btn" data-goto-step="5" disabled>
+                    <span class="stepper-num">5</span>
+                    <span class="stepper-label">Контакты</span>
+                  </button>
+                </li>
+                <li class="stepper-item" data-step-indicator="6">
+                  <button type="button" class="stepper-btn" data-goto-step="6" disabled>
+                    <span class="stepper-num">6</span>
+                    <span class="stepper-label">Готово</span>
+                  </button>
+                </li>
+              </ol>
+
+              <!-- Панель уведомлений об ошибках внутри формы -->
+              <div id="booking-form-alert" class="booking-alert" role="alert" hidden></div>
+
+              <!-- ШАГ 1: ВЫБОР УСЛУГИ -->
+              <div class="booking-step-pane" id="step-pane-1" data-step="1">
+                <div class="step-pane-header">
+                  <h3 class="step-pane-title">Шаг 1. Выберите услугу</h3>
+                  <p class="step-pane-subtitle">
+                    Указана точная длительность и фиксированная стоимость процедуры.
+                  </p>
+                </div>
+
+                <div class="wizard-category-filter" id="wizard-category-filter" role="tablist" aria-label="Фильтр категорий в форме записи"></div>
+                <div class="wizard-service-list" id="wizard-service-list" role="radiogroup" aria-label="Список услуг"></div>
+              </div>
+
+              <!-- ШАГ 2: ВЫБОР МАСТЕРА -->
+              <div class="booking-step-pane" id="step-pane-2" data-step="2" hidden>
+                <div class="step-pane-header">
+                  <h3 class="step-pane-title">Шаг 2. Выберите мастера</h3>
+                  <p class="step-pane-subtitle" id="step-2-service-hint">
+                    Показаны только специалисты, выполняющие выбранную процедуру.
+                  </p>
+                </div>
+
+                <div class="wizard-master-list" id="wizard-master-list" role="radiogroup" aria-label="Доступные мастера"></div>
+
+                <div class="step-nav-footer">
+                  <button type="button" class="btn btn-secondary" data-prev-step="1">
+                    Назад к услугам
+                  </button>
+                </div>
+              </div>
+
+              <!-- ШАГ 3: ВЫБОР ДАТЫ -->
+              <div class="booking-step-pane" id="step-pane-3" data-step="3" hidden>
+                <div class="step-pane-header">
+                  <h3 class="step-pane-title">Шаг 3. Выберите дату визита</h3>
+                  <p class="step-pane-subtitle">
+                    Прошедшие даты и выходные дни выбранного специалиста недоступны для выбора.
+                  </p>
+                </div>
+
+                <div class="calendar-Quick-row" id="calendar-quick-row"></div>
+
+                <div class="calendar-box">
+                  <div class="calendar-header">
+                    <button
+                      type="button"
+                      class="calendar-nav-btn"
+                      id="cal-prev-month"
+                      aria-label="Предыдущий месяц"
+                    >
+                      ←
+                    </button>
+                    <div class="calendar-month-label" id="cal-month-label" aria-live="polite"></div>
+                    <button
+                      type="button"
+                      class="calendar-nav-btn"
+                      id="cal-next-month"
+                      aria-label="Следующий месяц"
+                    >
+                      →
+                    </button>
+                  </div>
+
+                  <div class="calendar-weekdays" aria-hidden="true">
+                    <span>Пн</span>
+                    <span>Вт</span>
+                    <span>Ср</span>
+                    <span>Чт</span>
+                    <span>Пт</span>
+                    <span>Сб</span>
+                    <span>Вс</span>
+                  </div>
+
+                  <div class="calendar-days-grid" id="calendar-days-grid" role="grid" aria-label="Календарь доступных дат"></div>
+                </div>
+
+                <div class="step-nav-footer">
+                  <button type="button" class="btn btn-secondary" data-prev-step="2">
+                    Назад к выбору мастера
+                  </button>
+                </div>
+              </div>
+
+              <!-- ШАГ 4: ВЫБОР ВРЕМЕНИ -->
+              <div class="booking-step-pane" id="step-pane-4" data-step="4" hidden>
+                <div class="step-pane-header">
+                  <div>
+                    <h3 class="step-pane-title">Шаг 4. Выберите свободное время</h3>
+                    <p class="step-pane-subtitle" id="step-4-date-subtitle">
+                      Интервалы загружаются с сервера с учётом длительности услуги, перерывов и текущих броней.
+                    </p>
+                  </div>
+                  <button type="button" class="btn btn-secondary btn-sm" id="refresh-slots-btn">
+                    Обновить слоты
+                  </button>
+                </div>
+
+                <div id="slots-container" class="slots-container" aria-live="polite"></div>
+
+                <div class="slots-legend" aria-label="Обозначения доступности времени">
+                  <span class="legend-item"><span class="legend-swatch swatch-free"></span> Свободно</span>
+                  <span class="legend-item"><span class="legend-swatch swatch-busy"></span> Занято / Перерыв / Прошло</span>
+                </div>
+
+                <div class="step-nav-footer">
+                  <button type="button" class="btn btn-secondary" data-prev-step="3">
+                    Изменить дату
+                  </button>
+                </div>
+              </div>
+
+              <!-- ШАГ 5: ДАННЫЕ КЛИЕНТА И ПРОВЕРКА -->
+              <div class="booking-step-pane" id="step-pane-5" data-step="5" hidden>
+                <div class="step-pane-header">
+                  <h3 class="step-pane-title">Шаг 5. Ваши контактные данные</h3>
+                  <p class="step-pane-subtitle">
+                    Укажите имя и телефон для подтверждения визита. Мы не запрашиваем лишних данных.
+                  </p>
+                </div>
+
+                <!-- Индикатор временного удержания слота на сервере -->
+                <div class="hold-timer-banner" id="hold-timer-banner" hidden>
+                  <span>Выбранный интервал временно удерживается за вами:</span>
+                  <strong class="hold-timer-countdown" id="hold-timer-countdown">05:00</strong>
+                </div>
+
+                <form id="booking-client-form" class="client-form" novalidate>
+                  <div class="form-row-two">
+                    <div class="form-field">
+                      <label for="client-name-input" class="field-label">
+                        Ваше имя <span class="required-mark" aria-hidden="true">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        id="client-name-input"
+                        name="clientName"
+                        class="field-input"
+                        placeholder="Например, Анастасия"
+                        autocomplete="given-name"
+                        required
+                        minlength="2"
+                        maxlength="60"
+                      />
+                      <span class="field-error" id="client-name-error" hidden></span>
+                    </div>
+
+                    <div class="form-field">
+                      <label for="client-lastname-input" class="field-label">
+                        Фамилия (по желанию)
+                      </label>
+                      <input
+                        type="text"
+                        id="client-lastname-input"
+                        name="clientLastName"
+                        class="field-input"
+                        placeholder="Например, Соколова"
+                        autocomplete="family-name"
+                        maxlength="60"
+                      />
+                    </div>
+                  </div>
+
+                  <div class="form-field">
+                    <label for="client-phone-input" class="field-label">
+                      Номер телефона <span class="required-mark" aria-hidden="true">*</span>
+                    </label>
+                    <input
+                      type="tel"
+                      id="client-phone-input"
+                      name="clientPhone"
+                      class="field-input"
+                      placeholder="+7 (999) 000-00-00"
+                      autocomplete="tel"
+                      required
+                    />
+                    <span class="field-hint">Используется только для подтверждения и напоминания о записи.</span>
+                    <span class="field-error" id="client-phone-error" hidden></span>
+                  </div>
+
+                  <div class="form-field">
+                    <label for="client-comment-input" class="field-label">
+                      Комментарий к записи (необязательно)
+                    </label>
+                    <textarea
+                      id="client-comment-input"
+                      name="clientComment"
+                      class="field-textarea"
+                      rows="2"
+                      maxlength="500"
+                      placeholder="Пожелания к процедуре, снятие покрытия или особенности"
+                    ></textarea>
+                  </div>
+
+                  <div class="form-consent">
+                    <label class="checkbox-label" for="client-consent-checkbox">
+                      <input
+                        type="checkbox"
+                        id="client-consent-checkbox"
+                        name="consentAccepted"
+                        required
+                        checked
+                      />
+                      <span>
+                        Я даю согласие на обработку персональных данных (имя, телефон) для оформления записи в соответствии с
+                        <button type="button" class="inline-text-link" data-open-modal="privacy-modal">
+                          Политикой конфиденциальности
+                        </button>
+                      </span>
+                    </label>
+                    <span class="field-error" id="client-consent-error" hidden></span>
+                  </div>
+
+                  <div class="step-nav-footer step-5-actions">
+                    <button type="button" class="btn btn-secondary" data-prev-step="4">
+                      Изменить время
+                    </button>
+                    <button type="submit" class="btn btn-primary btn-lg" id="submit-booking-btn">
+                      Подтвердить запись
+                    </button>
+                  </div>
+                </form>
+              </div>
+
+              <!-- ШАГ 6: ПОДТВЕРЖДЕНИЕ ЗАПИСИ -->
+              <div class="booking-step-pane" id="step-pane-6" data-step="6" hidden>
+                <div class="confirmation-card" id="confirmation-card" aria-live="polite">
+                  <!-- Заполняется только после получения подтверждения от сервера (HTTP 201/200) -->
+                </div>
+              </div>
+            </div>
+
+            <!-- Правая колонка: Итоговая сводка выбранных параметров (Sticky Summary) -->
+            <aside class="booking-summary-aside" aria-label="Сводка вашей записи">
+              <div class="summary-card">
+                <h3 class="summary-title">Детали визита</h3>
+                <dl class="summary-list">
+                  <div class="summary-row">
+                    <dt>Услуга</dt>
+                    <dd id="sum-service">Не выбрана</dd>
+                  </div>
+                  <div class="summary-row">
+                    <dt>Мастер</dt>
+                    <dd id="sum-master">Не выбран</dd>
+                  </div>
+                  <div class="summary-row">
+                    <dt>Дата</dt>
+                    <dd id="sum-date">Не выбрана</dd>
+                  </div>
+                  <div class="summary-row">
+                    <dt>Время</dt>
+                    <dd id="sum-time" class="tabular-nums">Не выбрано</dd>
+                  </div>
+                  <div class="summary-row">
+                    <dt>Продолжительность</dt>
+                    <dd id="sum-duration" class="tabular-nums">—</dd>
+                  </div>
+                  <div class="summary-row">
+                    <dt>Клиент</dt>
+                    <dd id="sum-client">—</dd>
+                  </div>
+                  <div class="summary-row summary-row-total">
+                    <dt>Стоимость</dt>
+                    <dd id="sum-price" class="tabular-nums">—</dd>
+                  </div>
+                </dl>
+
+                <p class="summary-security-note">
+                  Оплата производится в салоне после завершения процедуры. Стоимость и длительность фиксируются сервером.
+                </p>
+              </div>
+            </aside>
+          </div>
+        </div>
+      </section>
+
+      <!-- РАЗДЕЛ: КОНТАКТЫ -->
+      <section class="section contacts-section" id="contacts">
+        <div class="container">
+          <div class="contacts-grid">
+            <div class="contacts-info">
+              <p class="eyebrow">Ждём вас в гости</p>
+              <h2 class="section-title">Контакты и часы работы</h2>
+              <p class="contacts-config-hint">
+                Контактные реквизиты ниже являются настраиваемыми параметрами конфигурации и заменяются реальными данными владельца перед открытием:
+              </p>
+
+              <dl class="contacts-details-list">
+                <div class="contact-detail-item">
+                  <dt>Адрес студии</dt>
+                  <dd id="contact-address">
+                    [Укажите адрес салона в настройках: например, г. Москва, ул. Малая Бронная, д. —]
+                  </dd>
+                </div>
+                <div class="contact-detail-item">
+                  <dt>Телефон для связи</dt>
+                  <dd id="contact-phone" class="tabular-nums">
+                    +7 (000) 000-00-00 [Замените в настройках]
+                  </dd>
+                </div>
+                <div class="contact-detail-item">
+                  <dt>График работы</dt>
+                  <dd id="contact-hours">
+                    Ежедневно, 10:00 — 21:00
+                  </dd>
+                </div>
+                <div class="contact-detail-item">
+                  <dt>Социальные сети и мессенджеры</dt>
+                  <dd class="social-links-row">
+                    <a href="#contacts" id="social-tg-link" class="text-link">Telegram (настроить ссылку)</a>
+                    <span aria-hidden="true">·</span>
+                    <a href="#contacts" id="social-vk-link" class="text-link">ВКонтакте (настроить ссылку)</a>
+                    <span aria-hidden="true">·</span>
+                    <a href="#contacts" id="social-wa-link" class="text-link">WhatsApp (настроить ссылку)</a>
+                  </dd>
+                </div>
+              </dl>
+
+              <div class="contacts-cta">
+                <a href="#booking" class="btn btn-primary btn-lg" data-scroll-to="booking">
+                  Записаться онлайн
+                </a>
+              </div>
+            </div>
+
+            <!-- Архитектурная схема расположения (SVG без внешних трекеров) -->
+            <div class="contacts-map-card">
+              <div class="map-visual-box" role="img" aria-label="Схема расположения салона LÉA STUDIO">
+                <svg class="map-svg" viewBox="0 0 520 380" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <rect width="520" height="380" rx="18" fill="#F8E9E8" />
+                  <!-- Сетка кварталов -->
+                  <path d="M0 95H520M0 215H520M0 310H520" stroke="#EDE2D7" stroke-width="14" />
+                  <path d="M125 0V380M295 0V380M430 0V380" stroke="#EDE2D7" stroke-width="14" />
+                  <path d="M40 0L460 380" stroke="#FFFCFA" stroke-width="22" />
+                  <!-- Кварталы -->
+                  <rect x="145" y="115" width="130" height="80" rx="10" fill="#FFFCFA" stroke="#E5D5CB" />
+                  <rect x="315" y="115" width="95" height="80" rx="10" fill="#FFFCFA" stroke="#E5D5CB" />
+                  <rect x="145" y="235" width="130" height="55" rx="10" fill="#FFFCFA" stroke="#E5D5CB" />
+                  <!-- Метка LÉA STUDIO -->
+                  <circle cx="295" cy="215" r="34" fill="#B87D88" fill-opacity="0.2" />
+                  <circle cx="295" cy="215" r="14" fill="#B87D88" stroke="#FFFCFA" stroke-width="3" />
+                  <rect x="195" y="150" width="200" height="44" rx="10" fill="#403532" />
+                  <text x="295" y="177" text-anchor="middle" fill="#FFFCFA" font-family="system-ui, sans-serif" font-size="13" font-weight="600">
+                    LÉA STUDIO · Вход с фасада
+                  </text>
+                </svg>
+                <div class="map-caption">
+                  <span>Схема проезда и парковки настраивается владельцем салона в конфигурационном файле</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <!-- ПОДВАЛ САЙТА -->
+    <footer class="site-footer">
+      <div class="container footer-inner">
+        <div class="footer-brand-col">
+          <a href="#top" class="brand-logo">LÉA STUDIO</a>
+          <p class="footer-tagline">
+            Пространство красоты, заботы о себе и маленьких удовольствий каждый день.
+          </p>
+          <div class="footer-contacts-list">
+            <span id="footer-contact-address">[Адрес салона настраивается владельцем]</span>
+            <span id="footer-contact-phone" class="tabular-nums">+7 (000) 000-00-00</span>
+            <span id="footer-contact-hours">Ежедневно, 10:00 — 21:00</span>
+          </div>
+        </div>
+
+        <nav class="footer-nav" aria-label="Навигация в подвале">
+          <a href="#hero" class="footer-link">Главная</a>
+          <a href="#services" class="footer-link">Услуги</a>
+          <a href="#masters" class="footer-link">Мастера</a>
+          <a href="#about" class="footer-link">О салоне</a>
+          <a href="#booking" class="footer-link">Онлайн-запись</a>
+          <a href="#contacts" class="footer-link">Контакты</a>
+        </nav>
+
+        <div class="footer-legal-col">
+          <button type="button" class="footer-link-btn" data-open-modal="privacy-modal">
+            Политика обработки персональных данных
+          </button>
+          <button type="button" class="footer-link-btn" data-open-modal="admin-modal">
+            Панель администратора и статус Telegram Bot API
+          </button>
+          <p class="footer-legal-note">
+            Юридические документы на сайте являются типовыми шаблонами и требуют проверки владельцем салона перед коммерческим запуском.
+          </p>
+          <p class="footer-copy">© 2026 LÉA STUDIO. Все права защищены.</p>
+        </div>
+      </div>
+    </footer>
+
+    <!-- МОДАЛЬНОЕ ОКНО: ПОЛИТИКА ОБРАБОТКИ ПЕРСОНАЛЬНЫХ ДАННЫХ -->
+    <div class="modal-backdrop" id="privacy-modal" role="dialog" aria-modal="true" aria-labelledby="privacy-modal-title" hidden>
+      <div class="modal-dialog">
+        <div class="modal-header">
+          <h2 class="modal-title" id="privacy-modal-title">
+            Политика обработки персональных данных (шаблон)
+          </h2>
+          <button type="button" class="modal-close-btn" data-close-modal="privacy-modal" aria-label="Закрыть окно">
+            ✕
+          </button>
+        </div>
+        <div class="modal-body prose-text">
+          <p class="demo-notice-bar">
+            <strong>Примечание для владельца салона:</strong> данный документ является базовым шаблоном. Перед публикацией в коммерческую эксплуатацию рекомендуется проверить реквизиты оператора персональных данных у профильного юриста.
+          </p>
+          <p>
+            Настоящая Политика определяет порядок и условия обработки персональных данных посетителей при использовании системы онлайн-записи салона красоты <strong>LÉA STUDIO</strong>.
+          </p>
+          <h3>1. Минимизация собираемых данных</h3>
+          <p>
+            Для оформления и подтверждения бронирования мы запрашиваем исключительно минимально необходимые данные:
+          </p>
+          <ul>
+            <li>Имя и (по желанию) фамилия клиента (для обращения при визите);</li>
+            <li>Контактный номер телефона (для связи администратора и подтверждения записи);</li>
+            <li>Необязательный комментарий к процедуре (по желанию клиента).</li>
+          </ul>
+          <h3>2. Цели обработки данных</h3>
+          <p>
+            Персональные данные используются строго для резервирования выбранного временного интервала в графике мастера, информирования администратора салона о новой записи через защищённый серверный канал (официальный Telegram Bot API) и связи с клиентом по вопросам визита.
+          </p>
+          <h3>3. Защита и хранение данных</h3>
+          <p>
+            Передача данных осуществляется по защищённому протоколу HTTPS. Секретные ключи и токены уведомлений (<code>TELEGRAM_BOT_TOKEN</code>, <code>TELEGRAM_CHAT_ID</code>) хранятся исключительно в серверных секретах Cloudflare Workers и никогда не передаются в браузер пользователя.
+          </p>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-primary" data-close-modal="privacy-modal">
+            Понятно
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- МОДАЛЬНОЕ ОКНО: ЗАЩИЩЁННАЯ ПАНЕЛЬ АДМИНИСТРАТОРА И ИНСТРУКЦИЯ TELEGRAM BOT API -->
+    <div class="modal-backdrop" id="admin-modal" role="dialog" aria-modal="true" aria-labelledby="admin-modal-title" hidden>
+      <div class="modal-dialog modal-dialog-wide">
+        <div class="modal-header">
+          <h2 class="modal-title" id="admin-modal-title">
+            Управление записями и уведомлениями Telegram
+          </h2>
+          <button type="button" class="modal-close-btn" data-close-modal="admin-modal" aria-label="Закрыть окно">
+            ✕
+          </button>
+        </div>
+        <div class="modal-body">
+          <!-- Форма входа администратора (серверная проверка хеша пароля) -->
+          <form id="admin-login-form" class="admin-login-bar">
+            <div class="admin-login-field">
+              <label for="admin-password-input" class="field-label">
+                Пароль администратора (серверная авторизация)
+              </label>
+              <input
+                type="password"
+                id="admin-password-input"
+                class="field-input"
+                placeholder="Введите пароль администратора"
+                value="LeaAdmin2026!"
+                required
+              />
+              <span class="field-hint">
+                Демо-пароль для проверки: <code>LeaAdmin2026!</code> (на сервере хранится только SHA-256 хеш).
+              </span>
+            </div>
+            <button type="submit" class="btn btn-primary">
+              Загрузить журнал записей
+            </button>
+          </form>
+
+          <div id="admin-error-box" class="booking-alert" hidden></div>
+
+          <div id="admin-dashboard-content" hidden>
+            <div class="admin-toolbar">
+              <div id="admin-tg-status-summary" class="admin-status-box"></div>
+              <div class="admin-toolbar-actions">
+                <button type="button" class="btn btn-secondary btn-sm" id="admin-retry-tg-btn">
+                  Повторить отправку очереди Telegram
+                </button>
+                <button type="button" class="btn btn-secondary btn-sm" id="admin-refresh-btn">
+                  Обновить список
+                </button>
+              </div>
+            </div>
+
+            <h3 class="admin-section-subtitle">Актуальные бронирования в базе данных (D1 / SQLite)</h3>
+            <div id="admin-bookings-table-wrap" class="admin-table-wrap"></div>
+
+            <div class="max-setup-guide">
+              <h3>Инструкция по подключению уведомлений через официальный Telegram Bot API</h3>
+              <ol>
+                <li>
+                  Откройте в Telegram официального бота <code>@BotFather</code>, выполните команду <code>/newbot</code> и получите токен бота.
+                </li>
+                <li>
+                  Напишите вашему боту сообщение (или добавьте его в группу администраторов салона) и узнайте <code>chat_id</code> получателя.
+                </li>
+                <li>
+                  Сохраните секреты в окружении Cloudflare Workers интерактивными командами (без помещения токена в код или аргументы командной строки):
+                  <pre class="code-snippet">npx wrangler secret put TELEGRAM_BOT_TOKEN
+npx wrangler secret put TELEGRAM_CHAT_ID</pre>
+                </li>
+                <li>
+                  Сервер автоматически отправляет уведомления методом <code>POST https://api.telegram.org/bot&lt;TOKEN&gt;/sendMessage</code> с проверкой HTTP-статуса и поля <code>ok: true</code>.
+                </li>
+              </ol>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

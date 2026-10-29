@@ -1,11 +1,82 @@
-<div align="center">
+# LÉA STUDIO — Премиальный сайт салона красоты с реальной онлайн-записью и уведомлениями в Telegram
 
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
+Полноценный веб-сайт и серверная система онлайн-бронирования для салона красоты **LÉA STUDIO**, разработанные по принципу **нулевых сторонних зависимостей приложения** (Pure HTML5 + CSS3 + Vanilla JavaScript + Cloudflare Workers + Cloudflare D1 / SQLite).
 
-  <h1>Built with AI Studio</h2>
+---
 
-  <p>The fastest path from prompt to production with Gemini.</p>
+## 1. Архитектура и структура файлов
 
-  <a href="https://aistudio.google.com/apps">Start building</a>
+- `index.html` — семантическая HTML5-разметка сайта, 6-шаговой формы онлайн-записи и панели администратора.
+- `styles.css` — таблица стилей на чистом CSS3 (палитра LÉA STUDIO, адаптивная вёрстка, поддержка `prefers-reduced-motion`).
+- `app.js` — клиентская логика на чистом JavaScript без фреймворков и сторонних библиотек.
+- `worker/index.js` — серверное ядро для Cloudflare Workers на стандартных Web API (`fetch`, `Request`, `Response`, `AbortController`, `crypto.subtle`).
+- `worker/d1-sqlite-adapter.js` — D1-совместимый адаптер поверх встроенного в Node.js модуля `node:sqlite` (`DatabaseSync`) с поддержкой атомарных транзакций `db.batch()`.
+- `server.js` — локальный и self-hosted HTTP-сервер на встроенном модуле `node:http`, делегирующий `/api/*` в `worker/index.js`.
+- `schema.sql` — полная схема базы данных с таблицами и триггерами целостности.
+- `migrations/0001_init.sql` — миграция структуры БД, таблиц слотов, очереди/логов уведомлений и триггеров.
+- `migrations/0002_seed_demo.sql` — стартовые категории, демонстрационные услуги, мастера, матрица `master_services` и графики работы.
+- `migrations/0003_telegram_and_remote_compat.sql` — безопасная миграция совместимости для интеграции с Telegram и существующей базой `lea-booking-db`.
+- `wrangler.toml` — конфигурация инфраструктуры Cloudflare Workers + D1 + Cron Triggers (без секретов).
+- `tests/booking.test.js` — автоматические тесты критической логики бронирования, пересечений, конкурентных запросов и Telegram Bot API.
+- `scripts/build.js` — сборка статического фронтенда в папку `dist/` для публикации на GitHub Pages / Cloudflare Pages.
 
-</div>
+---
+
+## 2. Защита от двойной записи и пересечений
+
+Защита реализована **на уровне сервера и базы данных** в три эшелона:
+
+1. **Авторитетный расчёт интервала на сервере:**
+   Сервер никогда не доверяет цене, длительности услуги или связке «мастер–услуга» из браузера. При каждом запросе `POST /api/bookings` сервер загружает `duration_minutes` и `price_rub` из таблицы `services` и вычисляет интервал `[start_minute, end_minute)`.
+2. **Атомарный захват 5-минутных слотов (`booked_slots`) в единой транзакции `env.DB.batch([...])`:**
+   Каждая процедура разбивается на дискретные 5-минутные блоки `slot_minute` на интервале `[start_minute, end_minute)`. В таблице `booked_slots` установлен составной первичный ключ:
+   ```sql
+   PRIMARY KEY (master_id, slot_date, slot_minute)
+   ```
+   Все команды `INSERT INTO bookings`, `INSERT INTO booked_slots` (для каждого 5-минутного блока) и `INSERT INTO notification_queue` выполняются в рамках одной транзакции `env.DB.batch()`. Если хотя бы один 5-минутный блок уже занят (например, запись на `14:30–15:30` пытается захватить слот `14:30`, уже занятый записью `14:00–15:00`), движок СУБД мгновенно отклоняет операцию и откатывает всю транзакцию целиком (`ROLLBACK`).
+3. **Триггеры базы данных (`trg_prevent_booking_overlap` и `trg_validate_master_service`):**
+   Дополнительно перед вставкой в `bookings` срабатывает SQL-триггер `trg_prevent_booking_overlap`, проверяющий условие пересечения интервалов `NEW.start_minute < b.end_minute AND NEW.end_minute > b.start_minute`, и триггер `trg_validate_master_service`, запрещающий запись к мастеру на услугу вне таблицы `master_services`.
+4. **Защита от повторного нажатия (Idempotency Key):**
+   Каждая попытка бронирования содержит уникальный `idempotency_key` (`UNIQUE` в БД). Повторный запрос с тем же ключом возвращает уже созданную запись без дублирования.
+
+---
+
+## 3. Уведомления администратору через официальный Telegram Bot API
+
+Интеграция реализована напрямую через встроенный `fetch()` в Cloudflare Workers без сторонних библиотек:
+
+- **Официальный эндпоинт:** `POST https://api.telegram.org/bot<TELEGRAM_BOT_TOKEN>/sendMessage`
+- **Тело запроса:** JSON `{ "chat_id": "<TELEGRAM_CHAT_ID>", "text": "..." }` (обычный текст без `parse_mode`, чтобы спецсимволы в комментарии клиента никогда не вызывали ошибок разметки).
+- **Проверка доставки:** сервер проверяет как HTTP-статус ответа, так и наличие поля `"ok": true` в JSON-ответе Telegram API.
+- **Отказоустойчивость:** уведомление отправляется *после* фиксации транзакции бронирования в БД. Если Telegram API временно недоступен, произошёл тайм-аут или секреты ещё не заданы, запись сохраняется, а статус фиксируется в полях `telegram_status`, `telegram_attempts`, `telegram_last_error` таблицы `bookings`, а также в `notification_queue` и `notification_logs`. Повторная отправка выполняется по Cron-триггеру (`*/5 * * * *`) с экспоненциальной задержкой и ограничением в 5 попыток (`max_attempts = 5`).
+
+### Настройка секретов Telegram:
+
+1. Создайте бота в Telegram через `@BotFather` и получите токен.
+2. Напишите боту сообщение или добавьте его в группу администраторов и узнайте `chat_id`.
+3. Установите секреты в Cloudflare Workers интерактивными командами:
+   ```bash
+   npx wrangler secret put TELEGRAM_BOT_TOKEN
+   npx wrangler secret put TELEGRAM_CHAT_ID
+   ```
+
+---
+
+## 4. Локальный запуск и проверка тестов
+
+### Запуск сервера (фронтенд + API + локальная SQLite/D1 база):
+```bash
+npm run dev
+```
+Сайт будет доступен по адресу `http://localhost:3000`. База данных автоматически создаётся и инициализируется миграциями в файле `.data/lea-studio.sqlite`.
+
+### Запуск автоматических тестов:
+```bash
+npm test
+```
+
+### Проверка синтаксиса и сборка статического фронтенда:
+```bash
+npm run lint
+npm run build
+```

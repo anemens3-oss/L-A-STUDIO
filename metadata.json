@@ -1,0 +1,6 @@
+{
+  "name": "LÉA STUDIO — Салон красоты и онлайн-запись",
+  "description": "Премиальный европейский салон красоты LÉA STUDIO. Онлайн-запись к мастерам с атомарной защитой от двойного бронирования.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
