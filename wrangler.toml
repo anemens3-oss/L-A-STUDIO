@@ -1,4 +1,4 @@
-name = "lea-studio-api"
+name = "l-a-studio"
 main = "worker/index.js"
 compatibility_date = "2025-02-01"
 
@@ -9,7 +9,7 @@ compatibility_date = "2025-02-01"
 [[d1_databases]]
 binding = "DB"
 database_name = "lea-booking-db"
-database_id = "00000000-0000-0000-0000-000000000000"
+database_id = "48d010c2-6e30-40f5-a5e6-552888f24646"
 migrations_dir = "migrations"
 
 # Периодическая повторная отправка отложенных уведомлений в Telegram (каждые 5 минут)
